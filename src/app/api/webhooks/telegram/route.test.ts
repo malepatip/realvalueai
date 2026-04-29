@@ -42,6 +42,7 @@ vi.mock("@/lib/env", () => ({
     SUPABASE_ANON_KEY: "test-anon-key",
     REDIS_URL: "redis://localhost:6379",
     TELEGRAM_BOT_TOKEN: "test-bot-token",
+    TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret",
     PLAID_CLIENT_ID: "test",
     PLAID_SECRET: "test",
     SIMPLEFIN_ACCESS_URL: "test",
@@ -172,7 +173,7 @@ describe("POST /api/webhooks/telegram", () => {
   // ---- Body validation ----
 
   it("rejects body without update_id", async () => {
-    const req = makeRequest({ not_an_update: true }, "test-bot-token");
+    const req = makeRequest({ not_an_update: true }, "test-webhook-secret");
     const res = await POST(req);
     expect(res.status).toBe(400);
     const json = await res.json();
@@ -184,7 +185,7 @@ describe("POST /api/webhooks/telegram", () => {
   it("returns 200 for unsupported update types without processing", async () => {
     const req = makeRequest(
       { update_id: 200, edited_message: { message_id: 1, from: { id: 1, first_name: "X" }, chat: { id: 1 } } },
-      "test-bot-token",
+      "test-webhook-secret",
     );
     const res = await POST(req);
     expect(res.status).toBe(200);
@@ -210,7 +211,7 @@ describe("POST /api/webhooks/telegram", () => {
           text: "Check my balance",
         },
       },
-      "test-bot-token",
+      "test-webhook-secret",
     );
 
     const res = await POST(req);
@@ -255,7 +256,7 @@ describe("POST /api/webhooks/telegram", () => {
           text: "Hello",
         },
       },
-      "test-bot-token",
+      "test-webhook-secret",
     );
 
     const res = await POST(req);
@@ -285,7 +286,7 @@ describe("POST /api/webhooks/telegram", () => {
           data: "approve:action-uuid-abc",
         },
       },
-      "test-bot-token",
+      "test-webhook-secret",
     );
 
     const res = await POST(req);
@@ -318,7 +319,7 @@ describe("POST /api/webhooks/telegram", () => {
           data: "reject:action-uuid-def",
         },
       },
-      "test-bot-token",
+      "test-webhook-secret",
     );
 
     const res = await POST(req);
@@ -342,7 +343,7 @@ describe("POST /api/webhooks/telegram", () => {
           data: "snooze:action-uuid-ghi",
         },
       },
-      "test-bot-token",
+      "test-webhook-secret",
     );
 
     const res = await POST(req);
@@ -368,7 +369,7 @@ describe("POST /api/webhooks/telegram", () => {
           text: "hi",
         },
       },
-      "test-bot-token",
+      "test-webhook-secret",
     );
 
     await POST(req);
@@ -392,7 +393,7 @@ describe("POST /api/webhooks/telegram", () => {
           text: "hi",
         },
       },
-      "test-bot-token",
+      "test-webhook-secret",
     );
 
     const res = await POST(req);

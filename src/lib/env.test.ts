@@ -7,6 +7,7 @@ const validEnv: Record<string, string> = {
   SUPABASE_ANON_KEY: "test-anon-key",
   REDIS_URL: "redis://localhost:6379",
   TELEGRAM_BOT_TOKEN: "123456:ABC-DEF",
+  TELEGRAM_WEBHOOK_SECRET: "abcdef0123456789abcdef0123456789",
   PLAID_CLIENT_ID: "plaid-client-id",
   PLAID_SECRET: "plaid-secret",
   SIMPLEFIN_ACCESS_URL: "https://simplefin.example.com",
@@ -47,6 +48,19 @@ describe("validateEnv", () => {
     expect(() =>
       validateEnv({ ...validEnv, ENCRYPTION_KEY: "" }),
     ).toThrow("Environment validation failed");
+  });
+
+  it("rejects TELEGRAM_WEBHOOK_SECRET containing a colon (Telegram char restriction)", () => {
+    expect(() =>
+      validateEnv({ ...validEnv, TELEGRAM_WEBHOOK_SECRET: "123456:ABC-DEF" }),
+    ).toThrow("Environment validation failed");
+  });
+
+  it("rejects when TELEGRAM_WEBHOOK_SECRET is missing", () => {
+    const { TELEGRAM_WEBHOOK_SECRET: _, ...incomplete } = validEnv;
+    expect(() => validateEnv(incomplete)).toThrow(
+      "Environment validation failed",
+    );
   });
 
   it("rejects completely empty environment", () => {

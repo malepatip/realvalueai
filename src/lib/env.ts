@@ -6,6 +6,10 @@ const envSchema = z.object({
   SUPABASE_ANON_KEY: z.string().min(1),
   REDIS_URL: z.string().min(1),
   TELEGRAM_BOT_TOKEN: z.string().min(1),
+  TELEGRAM_WEBHOOK_SECRET: z
+    .string()
+    .min(1)
+    .regex(/^[A-Za-z0-9_-]+$/, "TELEGRAM_WEBHOOK_SECRET may only contain A-Z, a-z, 0-9, _ and -"),
   PLAID_CLIENT_ID: z.string().min(1),
   PLAID_SECRET: z.string().min(1),
   SIMPLEFIN_ACCESS_URL: z.string().min(1),

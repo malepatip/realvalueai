@@ -109,8 +109,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const env = getEnv();
 
     // 1. Verify webhook signature
+    // Telegram echoes the `secret_token` from setWebhook in this header.
+    // We use a dedicated TELEGRAM_WEBHOOK_SECRET (not the bot token) because
+    // Telegram restricts secret_token to [A-Za-z0-9_-] — bot tokens contain ":".
     const headerSecret = request.headers.get("x-telegram-bot-api-secret-token");
-    if (!verifyTelegramSignature(headerSecret, env.TELEGRAM_BOT_TOKEN)) {
+    if (!verifyTelegramSignature(headerSecret, env.TELEGRAM_WEBHOOK_SECRET)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
