@@ -42,6 +42,12 @@ export function middleware(request: NextRequest): NextResponse {
     return NextResponse.next();
   }
 
+  // Allow public legal pages (must be reachable for Twilio A2P registration
+  // and unauthenticated visitors clicking from SMS terms / privacy disclosures).
+  if (pathname === "/privacy" || pathname === "/terms") {
+    return NextResponse.next();
+  }
+
   // For all other routes (portal pages), check for session cookie
   const sessionToken = request.cookies.get("session_token")?.value;
 
