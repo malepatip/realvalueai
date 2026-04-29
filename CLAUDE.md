@@ -18,9 +18,12 @@ RealValue is a chat-first multi-agent financial assistant (Telegram/WhatsApp/SMS
 You will be given a task ID (e.g., "1.1", "2.3", "3.7"). Do ONLY that task. Do not work on other tasks.
 
 When you complete your task:
-1. Run the tests you wrote
-2. Update `tasks.md` — change your task's checkbox from `[ ]` to `[x]`
-3. Report what you built and any issues
+1. Run `npx tsc --noEmit` — fix ALL type errors before proceeding
+2. Run the tests you wrote — all must pass
+3. Update `tasks.md` — change your task's checkbox from `[ ]` to `[x]`
+4. Report what you built and any issues
+
+**CRITICAL**: Tests passing does NOT mean type-check passes. They are different validation layers. Both must pass.
 
 ## Critical Rules
 

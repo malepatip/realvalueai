@@ -189,9 +189,9 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
 
 ### Wave 2 — Core Services (Depends on Wave 1)
 
-- [ ] 3. Wave 2: Core Services
+- [x] 3. Wave 2: Core Services
 
-  - [ ] 2.1 Telegram webhook handler
+  - [x] 2.1 Telegram webhook handler
     - **Depends on:** 1.1, 1.3, 1.5 (Wave 2)
     - Create `src/app/api/webhooks/telegram/route.ts`:
       - `POST` handler that receives Telegram webhook updates
@@ -208,7 +208,7 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - **Test:** Valid webhook parses correctly, invalid signature rejected, new user created at Phase 0, message enqueued to INBOUND, callback queries map to correct actions
     - _Requirements: 2.1, 2.6, 2.8, 11.1_
 
-  - [ ] 2.2 Plaid and SimpleFIN bank linking integration
+  - [x] 2.2 Plaid and SimpleFIN bank linking integration
     - **Depends on:** 1.1, 1.2, 1.3 (Wave 2)
     - Create `src/lib/banking/plaid.ts`:
       - `createLinkToken(userId)` — generate Plaid Link token for frontend
@@ -230,7 +230,7 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - **Test:** Link token generation, token exchange, transaction sync returns normalized data, account balance fetch, access token revocation, adapter abstraction works for both providers
     - _Requirements: 3.1, 9.2, 14.1, 14.2, 20.3, 21.1_
 
-  - [ ] 2.3 Watcher agent — transaction categorization engine
+  - [x] 2.3 Watcher agent — transaction categorization engine
     - **Depends on:** 1.1, 1.2, 1.3, 1.6 (Wave 2)
     - Create `src/agents/watcher/categorizer.ts`:
       - **Pass 1 — Rule-based**: `RuleBasedCategorizer` with 500+ merchant/category rules
@@ -252,7 +252,7 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - **Test:** Rule-based categorizer matches known merchants, fuzzy matching handles variations, LLM fallback called for unmatched, recurring charge detection identifies weekly/monthly/annual patterns, all amounts use Decimal.js
     - _Requirements: 4.1, 4.10, 21.1, 21.2_
 
-  - [ ] 2.4 Trust Ladder state machine
+  - [x] 2.4 Trust Ladder state machine
     - **Depends on:** 1.1, 1.2, 1.3 (Wave 2)
     - Create `src/lib/trust/state-machine.ts`:
       - `getCurrentPhase(userId)` — read from `users.trust_phase`, cache in Redis
@@ -273,7 +273,7 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - **Test:** Phase transitions follow rules, invalid transitions rejected, kill switch completes <5s, guardrails enforce limits correctly, tier classification correct, Phase 3 eligibility checks all criteria
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 8.10, 8.11, 10.1, 10.2, 10.5, 10.6_
 
-  - [ ] 2.5 Voice agent — template fallback system and personality modes
+  - [x] 2.5 Voice agent — template fallback system and personality modes
     - **Depends on:** 1.1, 1.3, 1.5 (Wave 2)
     - Create `src/agents/voice/templates.ts`:
       - Pre-written template messages for ALL critical communications:
@@ -298,7 +298,7 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - **Test:** Each personality mode transforms content correctly, zen mode hides numbers, safe mode disguises content, stealth mode removes specifics, simplified mode enforces limits, templates render with variables, account masking shows only last 4 digits
     - _Requirements: 7.1, 7.2, 7.3, 7.5, 7.6, 7.7, 7.8, 7.9, 13.1, 13.8, 19.6_
 
-  - [ ] 2.6 Credential vault API routes
+  - [x] 2.6 Credential vault API routes
     - **Depends on:** 1.1, 1.2, 1.7 (Wave 2)
     - Create `src/app/api/vault/store/route.ts` — `POST /api/vault/store`
       - Accept `{ serviceName, serviceUrl, credential, pin }`
@@ -315,7 +315,7 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - **Test:** Store/list/update/delete CRUD flow, unauthenticated requests rejected, PIN never stored or returned, soft delete works
     - _Requirements: 3.2, 9.3, 5.9_
 
-  - [ ] 2.7 Web portal — magic link authentication
+  - [x] 2.7 Web portal — magic link authentication
     - **Depends on:** 1.1, 1.2 (Wave 2)
     - Create `src/app/api/auth/magic-link/route.ts` — `POST /api/auth/magic-link`
       - Accept `{ phoneNumber }`
@@ -332,7 +332,7 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - **Test:** Magic link generation, token verification, expired token rejection, session creation, middleware redirects unauthenticated users
     - _Requirements: 3.6, 3.7, 9.8_
 
-- [ ] 4. Checkpoint — Ensure Wave 2 services pass all tests and integrate with Wave 1
+- [x] 4. Checkpoint — Ensure Wave 2 services pass all tests and integrate with Wave 1
   - Ensure all tests pass, ask the user if questions arise.
 
 ### Wave 3 — Agent Logic and Features (Depends on Wave 1+2)
