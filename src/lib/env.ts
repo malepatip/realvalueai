@@ -12,6 +12,7 @@ const envSchema = z.object({
     .regex(/^[A-Za-z0-9_-]+$/, "TELEGRAM_WEBHOOK_SECRET may only contain A-Z, a-z, 0-9, _ and -"),
   PLAID_CLIENT_ID: z.string().min(1),
   PLAID_SECRET: z.string().min(1),
+  PLAID_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
   SIMPLEFIN_ACCESS_URL: z.string().min(1),
   NVIDIA_NIM_API_KEY: z.string().min(1),
   TWILIO_ACCOUNT_SID: z.string().min(1),
