@@ -105,9 +105,14 @@ async function logRawEvent(
  * log the event, enqueue for processing, and return 200 immediately.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    const env = getEnv();
+  // Env validation runs OUTSIDE the request try/catch. The catch-all below
+  // returns 200 to Telegram to prevent retry storms on transient errors
+  // (DB / Redis / network), but a Zod failure here means misconfig — it
+  // will not fix itself on retry, so let it surface as a 500 with a visible
+  // log line instead of being silently swallowed.
+  const env = getEnv();
 
+  try {
     // 1. Verify webhook signature
     // Telegram echoes the `secret_token` from setWebhook in this header.
     // We use a dedicated TELEGRAM_WEBHOOK_SECRET (not the bot token) because
