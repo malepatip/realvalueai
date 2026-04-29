@@ -14,6 +14,7 @@ const validEnv: Record<string, string> = {
   NVIDIA_NIM_API_KEY: "nim-api-key",
   TWILIO_ACCOUNT_SID: "AC1234567890",
   TWILIO_AUTH_TOKEN: "twilio-auth-token",
+  TWILIO_FROM_NUMBER: "+14155551234",
   ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef",
 };
 

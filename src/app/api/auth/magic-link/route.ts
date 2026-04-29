@@ -38,7 +38,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const sms = new SmsAdapter(
       env.TWILIO_ACCOUNT_SID,
       env.TWILIO_AUTH_TOKEN,
-      phoneNumber, // fromNumber — in production, use a dedicated Twilio number
+      env.TWILIO_FROM_NUMBER,
     );
 
     await sms.sendText(

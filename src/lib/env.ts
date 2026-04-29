@@ -17,6 +17,9 @@ const envSchema = z.object({
   NVIDIA_NIM_API_KEY: z.string().min(1),
   TWILIO_ACCOUNT_SID: z.string().min(1),
   TWILIO_AUTH_TOKEN: z.string().min(1),
+  TWILIO_FROM_NUMBER: z
+    .string()
+    .regex(/^\+[1-9]\d{1,14}$/, "TWILIO_FROM_NUMBER must be E.164 format (e.g. +14155551234)"),
   ENCRYPTION_KEY: z.string().min(1),
 });
 
