@@ -2,23 +2,23 @@
   "crons": [
     {
       "path": "/api/cron/bank-sync",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/cron/morning-briefing",
-      "schedule": "0 * * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/cron/overdraft-check",
-      "schedule": "0 */4 * * *"
+      "schedule": "0 12 * * *"
     },
     {
       "path": "/api/cron/agent-health",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/survival-mode-check",
-      "schedule": "0 */12 * * *"
+      "schedule": "0 18 * * *"
     }
   ]
 }
