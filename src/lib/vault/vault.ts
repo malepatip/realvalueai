@@ -12,7 +12,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CredentialVaultEntry } from "@/types/database";
-import { encrypt, decrypt, zeroMemory, type EncryptedData } from "./crypto";
+import { encrypt, decrypt, type EncryptedData } from "./crypto";
 
 /** Result of a store operation */
 export interface StoreCredentialResult {
