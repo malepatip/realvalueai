@@ -104,6 +104,23 @@ describe("createConnection", () => {
     await expect(createConnection(testConfig)).rejects.toThrow("SimpleFIN API error (401)");
   });
 
+  it("preserves the access URL pathname when building request URLs", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({
+        accounts: [{ id: "a", balance: "0", org: { name: "X" } }],
+      }),
+    );
+
+    const configWithPath: SimpleFinConfig = {
+      accessUrl: "https://u:p@beta-bridge.simplefin.org/simplefin",
+    };
+
+    await createConnection(configWithPath);
+
+    const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://beta-bridge.simplefin.org/simplefin/accounts");
+  });
+
   it("sends Basic auth header derived from access URL", async () => {
     mockFetch.mockResolvedValueOnce(
       mockResponse({

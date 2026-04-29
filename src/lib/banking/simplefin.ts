@@ -23,14 +23,18 @@ export interface SimpleFinConfig {
 
 /**
  * Parse the SimpleFIN access URL into base URL and credentials.
- * Access URL format: https://username:password@bridge.simplefin.org
+ * Access URL format: https://username:password@bridge.simplefin.org/simplefin
+ *
+ * The pathname is preserved — real SimpleFIN access URLs end in /simplefin
+ * and resource paths like /accounts are appended to that, not to the host.
  */
 function parseAccessUrl(accessUrl: string): { baseUrl: string; authHeader: string } {
   const url = new URL(accessUrl);
   const username = decodeURIComponent(url.username);
   const password = decodeURIComponent(url.password);
   const authHeader = `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
-  const baseUrl = `${url.protocol}//${url.host}`;
+  const pathname = url.pathname.replace(/\/$/, "");
+  const baseUrl = `${url.protocol}//${url.host}${pathname}`;
   return { baseUrl, authHeader };
 }
 
