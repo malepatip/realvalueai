@@ -19,6 +19,9 @@ import { createAgentMessage } from "@/lib/agents/protocol";
 import { getQueue, QUEUE_NAMES } from "@/lib/redis/bullmq";
 import { createServerClient } from "@/lib/supabase/client";
 import { getEnv } from "@/lib/env";
+import { TelegramAdapter } from "@/lib/channels/telegram";
+import { processInboundMessage } from "@/agents/conductor/worker";
+import type { ConductorContext } from "@/agents/conductor/types";
 import type { User } from "@/types/database";
 
 /** Minimal Zod schema to ensure the body is a non-null object with update_id */
@@ -177,7 +180,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       queuePayload["callbackData"] = parsed.callbackData;
     }
 
-    // 7. Enqueue to INBOUND queue
+    // 7. Enqueue to INBOUND queue (kept for replay/observability; the
+    //    synchronous Conductor invocation below is what actually drives
+    //    the user-facing reply today).
     const agentMessage = createAgentMessage(
       "voice",
       "conductor",
@@ -191,7 +196,45 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       priority: parsed.type === "callback_query" ? 1 : 2,
     });
 
-    // 8. Return 200 immediately
+    // 8. Synchronously invoke the Conductor and send a reply.
+    //    Per tasks.md "Deployment hosts per workload" — the Conductor
+    //    runs as a Vercel function (sub-10s classify+route+send), not a
+    //    long-running worker. The same processInboundMessage() function
+    //    can later be invoked from a BullMQ consumer once we want async
+    //    fan-out, with no change to the conductor logic.
+    //    Wrapped in try/catch so a Conductor or send failure doesn't
+    //    break the webhook ack — the message was already enqueued.
+    try {
+      const conductorCtx: ConductorContext = {
+        userId: user.id,
+        telegramUserId: parsed.user.id,
+        chatId: parsed.chatId,
+        messageText: parsed.messageText ?? "",
+        updateType: parsed.type === "callback_query" ? "callback_query" : "message",
+        ...(parsed.messageId !== undefined && { messageId: parsed.messageId }),
+        ...(parsed.type === "callback_query" && parsed.callbackData
+          ? (() => {
+              const cb = parseCallbackAction(parsed.callbackData);
+              return {
+                ...(cb && { callbackAction: cb.action, callbackActionId: cb.actionId }),
+                ...(parsed.callbackQueryId && { callbackQueryId: parsed.callbackQueryId }),
+              };
+            })()
+          : {}),
+        ...(displayName && { displayName }),
+      };
+
+      const reply = processInboundMessage(conductorCtx);
+      const tg = new TelegramAdapter(env.TELEGRAM_BOT_TOKEN);
+      await tg.sendText(String(parsed.chatId), reply.text);
+    } catch (replyError) {
+      console.error(
+        "Telegram webhook reply error (non-fatal):",
+        replyError instanceof Error ? replyError.message : "Unknown error",
+      );
+    }
+
+    // 9. Return 200 immediately (regardless of reply success/failure).
     return NextResponse.json({ ok: true });
   } catch (error) {
     // Always return 200 to Telegram to prevent retry storms
