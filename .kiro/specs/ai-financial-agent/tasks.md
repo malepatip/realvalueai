@@ -10,6 +10,30 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
 
 ---
 
+## Architecture pivot (2026-04-29): Telegram-first, chat-only
+
+This spec was originally designed as "chat-first with a web portal companion." On 2026-04-29 we pivoted to **chat-only**: **Telegram is the primary user interface**, with **SMS as an alternative channel** (currently blocked on Twilio A2P 10DLC carrier review) and **WhatsApp planned post-MVP**. **There is no web portal.**
+
+Every flow that originally went through a web UI — bank linking, settings, data export, kill switch button, billing, KYC — is reframed as chat commands, inline keyboards, file attachments, payment invoices, or Telegram WebApps embedded in chat.
+
+**What stays vs. what goes:**
+
+| Surface | Status | Notes |
+|---|---|---|
+| `/` marketing landing | **Stay** | Public homepage that points discoverers to `@RealValueAIBot` on Telegram or "text START to +1-989-812-0439". No login, no app state. Currently a stub (`src/app/page.tsx`); becomes a real landing page later. |
+| `/privacy`, `/terms` | **Stay** | Public legal pages required by Twilio A2P 10DLC review and general compliance. No login. Already shipped. |
+| Server-side OAuth/webhook endpoints | **Stay** | `/api/banking/plaid-callback` (server handler for Plaid Link redirect), `/api/webhooks/{plaid,simplefin,telegram,twilio}`, `/api/health/*`. Receive requests, post results back to chat. **Not "pages."** |
+| `(portal)/` authenticated app pages | **Go** | Login, dashboard, settings, accounts — all replaced by Telegram chat commands and inline keyboards. Removal tracked in **task 2.8**. |
+| `/login` magic-link entry page | **Go** | Replaced by Telegram-resolved session at webhook time (2.1). Removal in 2.8. |
+
+**Onboarding** happens entirely in chat: discoverer taps the Telegram deep link from the marketing landing → sends `/start` to `@RealValueAIBot` → the bot's onboarding flow (task 5.8) handles crew intro, personality selection, and bank linking conversationally. SMS users similarly text `START` to the Twilio number.
+
+**SMS magic-link auth (task 2.7) is `[TBD on use]`** — code shipped, Twilio creds live, but SMS delivery is gated on Twilio A2P 10DLC carrier approval (in review since 2026-04-29, ETA 1–4 weeks; see `memory/project_wave2_open_todos.md`). Tasks that originally depended on 2.7 (3.10, 5.5, 5.6) have been **rewritten** to use Telegram instead, removing the SMS dependency.
+
+**The web portal scaffolding** (`src/app/(portal)/`, `src/app/login/`, most of `src/middleware.ts`) is scheduled for removal in **task 2.8**.
+
+---
+
 ## Dependency Index
 
 | Task | Depends On | Wave |
@@ -27,7 +51,8 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
 | 2.4 | 1.1, 1.2, 1.3 | 2 |
 | 2.5 | 1.1, 1.3, 1.5 | 2 |
 | 2.6 | 1.1, 1.2, 1.7 | 2 |
-| 2.7 | 1.1, 1.2 | 2 |
+| 2.7 | 1.1, 1.2 | 2 **[TBD on use]** |
+| 2.8 | 1.1 | 2 |
 | 3.1 | 2.3 | 3 |
 | 3.2 | 2.3 | 3 |
 | 3.3 | 2.3 | 3 |
@@ -37,7 +62,7 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
 | 3.7 | 1.1, 1.4, 2.4 | 3 |
 | 3.8 | 2.5, 1.3 | 3 |
 | 3.9 | 2.1, 1.2 | 3 |
-| 3.10 | 2.7, 1.2 | 3 |
+| 3.10 | 2.1, 1.2 | 3 |
 | 4.1 | 3.1, 3.6, 3.7 | 4 |
 | 4.2 | 3.6 | 4 |
 | 4.3 | 3.1, 2.3 | 4 |
@@ -48,8 +73,8 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
 | 5.2 | 2.4, 3.6 | 5 |
 | 5.3 | 2.4 | 5 |
 | 5.4 | 2.5, 3.8 | 5 |
-| 5.5 | 2.4, 2.7 | 5 |
-| 5.6 | 2.7 | 5 |
+| 5.5 | 2.4, 2.1, 3.6 | 5 |
+| 5.6 | 2.4, 2.1, 3.6 | 5 |
 | 5.7 | 1.3, 2.4, 1.2 | 5 |
 | 5.8 | 3.6, 3.8, 2.1 | 5 |
 | 5.9 | 1.1, 1.2, 1.4 | 5 |
@@ -310,13 +335,14 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
       - Re-encrypt with new credential + PIN
     - Create `src/app/api/vault/delete/[id]/route.ts` — `DELETE /api/vault/delete/:id`
       - Soft delete the entry
-    - All routes require authenticated user (magic link session)
+    - All routes require an authenticated user. **Pivot note (2026-04-29):** auth is now by **Telegram-resolved session** issued at webhook time in 2.1 (`telegram_user_id` → user row → `session_token` cookie/header), not the magic-link session. The magic-link session was the original design but is now `[TBD on use]` alongside 2.7. The auth-gate update for these routes is rolled into **task 2.8**.
     - Input validation with Zod on all endpoints
     - **Test:** Store/list/update/delete CRUD flow, unauthenticated requests rejected, PIN never stored or returned, soft delete works
     - _Requirements: 3.2, 9.3, 5.9_
 
-  - [x] 2.7 Web portal — magic link authentication
+  - [x] 2.7 SMS magic-link authentication **[TBD on use — 2026-04-29]**
     - **Depends on:** 1.1, 1.2 (Wave 2)
+    - > **[TBD on use]** Code shipped (`31b2178`, `bfa6266`); Twilio creds + `TWILIO_FROM_NUMBER` (`+19898120439`) live; `/api/health/auth` validates auth + From + send path against real Twilio (last probe SIDs: `SM924ff501e8a0da94b5fc89263aa16c45`, `SMf103cf9adf05aed600111bafd9351b75`). **SMS delivery is gated on Twilio A2P 10DLC carrier approval** (Sole Prop campaign submitted 2026-04-29, ETA 1–4 weeks). Telegram is the primary auth surface now (resolved at webhook time in 2.1); this SMS magic-link flow is the **fallback for users who don't use Telegram**. Resume condition + diagnostic steps in `memory/project_wave2_validation.md` and `memory/project_wave2_open_todos.md`. The `(portal)/login` and middleware portal-redirect logic this task originally created are scheduled for removal in **task 2.8**.
     - Create `src/app/api/auth/magic-link/route.ts` — `POST /api/auth/magic-link`
       - Accept `{ phoneNumber }`
       - Generate a time-limited magic link token (15 min expiry)
@@ -331,6 +357,17 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - Create `src/middleware.ts` — Next.js middleware to protect `/portal/*` routes, redirect unauthenticated to login
     - **Test:** Magic link generation, token verification, expired token rejection, session creation, middleware redirects unauthenticated users
     - _Requirements: 3.6, 3.7, 9.8_
+
+  - [ ] 2.8 Remove web portal scaffolding (Telegram-first cleanup)
+    - **Depends on:** 1.1 (Wave 2)
+    - **Added 2026-04-29 as part of the Telegram-first pivot.** The web portal directory and login page are obsolete — Telegram is the primary UI. SMS magic-link auth (2.7) stays `[TBD on use]` for future non-Telegram users.
+    - Delete `src/app/(portal)/` directory (login, dashboard, portal-only layout)
+    - Delete `src/app/login/page.tsx`
+    - Simplify `src/middleware.ts` — drop the session-token redirect to `/login` and the portal-protection allowlist; verify `/privacy` and `/terms` remain reachable (still required public for Twilio A2P legal review). The middleware can probably be removed entirely once all redirects are gone — Next.js public routes don't need it.
+    - Update vault routes (`src/app/api/vault/*/route.ts`) to use a **Telegram-resolved session** check instead of magic-link session: cookie/header carries an opaque `session_token` that the 2.1 webhook issues for a recognized `telegram_user_id` (stored in Redis with a TTL). Keep magic-link verification path coexisting but unused until 2.7 unblocks.
+    - Add a server-side handler for the Plaid Link redirect (`src/app/api/banking/plaid-callback/route.ts`) — exchanges `public_token`, stores in `bank_connections`, posts confirmation back to Telegram via `TelegramAdapter`. Returns a tiny "you can close this tab" HTML response. **Not a page** — a one-shot endpoint.
+    - **Test:** Type-check passes, `/privacy` and `/terms` still 200, vault routes still authenticate (with Telegram session), `/api/health/banking` and `/api/health/auth` no regression, no orphaned imports, `(portal)/` directory gone.
+    - _Requirements: pivot housekeeping (2026-04-29)_
 
 - [x] 4. Checkpoint — Ensure Wave 2 services pass all tests and integrate with Wave 1
   - Ensure all tests pass, ask the user if questions arise.
@@ -481,22 +518,16 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - **Test:** OG image renders at correct dimensions, card data fetched correctly, short URL redirects and tracks referral, milestone thresholds trigger correctly, no financial data leaked in URLs
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7_
 
-  - [ ] 3.10 Web portal — bank linking UI
-    - **Depends on:** 2.7, 1.2 (Wave 3)
-    - Create `src/app/(portal)/accounts/page.tsx`:
-      - Display linked bank accounts with institution name, account mask, status
-      - "Link Bank Account" button leading to Plaid Link or SimpleFIN flow based on tier
-    - Create `src/app/(portal)/accounts/link/page.tsx`:
-      - Plaid Link integration (Premium) — embed Plaid Link component
-      - SimpleFIN connection flow (Free) — access URL input
-      - On success: store connection, trigger initial transaction sync, advance trust to Phase 1
-    - Create `src/app/api/portal/link-bank/route.ts` — `POST /api/portal/link-bank`
-      - Exchange Plaid public token or store SimpleFIN access URL
-      - Create `bank_connections` row, trigger trust phase advance (Phase 0 to Phase 1)
-    - Create `src/app/api/portal/accounts/route.ts` — `GET /api/portal/accounts`
-    - Create `src/app/api/portal/unlink-bank/[id]/route.ts` — `DELETE /api/portal/unlink-bank/:id`
-      - Revoke access token, soft-delete connection, downgrade trust if no remaining connections
-    - **Test:** Plaid Link flow completes, SimpleFIN connection stores, accounts display with masked numbers, unlinking revokes tokens and downgrades trust, Phase 0 to 1 transition on first link
+  - [ ] 3.10 Telegram bank linking flow
+    - **Depends on:** 2.1, 1.2, 3.6 (Wave 3)
+    - **Rewritten 2026-04-29 (was: web portal bank linking UI).** Bank linking is driven entirely from chat — no portal pages.
+    - Telegram chat commands (handled by Conductor 3.6):
+      - `/link_bank` — for **Premium tier (Plaid)**: server generates a one-time **Plaid Hosted Link** URL via `link/token/create` with `redirect_uri = https://realvalueai.vercel.app/api/banking/plaid-callback?state=<userId>`. Bot DMs the URL to the user; user taps, completes Plaid's hosted flow on `link.plaid.com`, Plaid redirects to our callback with `public_token` + `state`. The callback handler is created in **task 2.8**.
+      - `/link_simplefin` — for **Free tier (SimpleFIN)**: bot DMs instructions and a deep link to `bridge.simplefin.org`'s setup-token URL. User pastes the resulting access URL back into Telegram via `/link_simplefin <url>`; server stores it (encrypted) in `bank_connections`, triggers initial sync, advances trust to Phase 1.
+      - `/accounts` — list linked accounts with masked numbers via inline message.
+      - `/unlink_bank` — bot replies with inline keyboard listing each account; tapping `Unlink` revokes the token, soft-deletes the connection, downgrades trust if no connections remain.
+    - Create `src/agents/conductor/handlers/bank-linking.ts` — chat command handlers (depends on 3.6 conductor scaffolding).
+    - **Test:** Plaid Hosted Link flow completes via redirect; callback exchanges token and posts `✅ Bank linked` confirmation in Telegram; SimpleFIN URL paste flow stores connection; `/accounts` lists with masked numbers; inline `Unlink` revokes tokens and downgrades trust; Phase 0 → Phase 1 on first link.
     - _Requirements: 3.1, 3.4, 8.2, 9.2, 21.1_
 
 - [ ] 6. Checkpoint — Ensure Wave 3 agent logic passes all tests
@@ -595,16 +626,22 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - **Test:** Ghost actions created only for Phase 1 users, savings calculated correctly, running total accumulates, message formatted with correct amounts
     - _Requirements: 8.3, 14.1_
 
-  - [ ] 4.6 Web portal — settings and preferences UI
-    - **Depends on:** 3.9, 3.10 (Wave 4)
-    - Create `src/app/(portal)/settings/page.tsx`:
-      - Personality mode selector, notification preferences, trusted contact, channel preference
-      - Safe mode toggle + code word + cover topic, stealth mode, simplified mode
-      - Blocked merchants list, affiliates toggle, phone number re-linking
-    - Create settings API routes: `GET/PUT /api/settings`, `PUT /api/settings/personality`, `PUT /api/settings/safe-mode`, `PUT /api/settings/blocked-merchants`, `PUT /api/settings/phone-number`
-    - Create quick-exit button in portal layout for Safe Mode users
-    - All routes require authentication, input validation with Zod
-    - **Test:** All settings save and load correctly, safe mode quick-exit works, blocked merchants persist, phone re-linking transfers data
+  - [ ] 4.6 Settings and preferences via chat commands
+    - **Depends on:** 3.9, 3.10, 3.6 (Wave 4)
+    - **Rewritten 2026-04-29 (was: web portal settings UI).** Settings are managed entirely via Telegram chat commands and inline keyboards — no settings page.
+    - Create `src/agents/conductor/handlers/settings.ts` for chat command handlers:
+      - `/personality` — opens inline keyboard with `savage` / `hype` / `zen` / `mentor` options
+      - `/notifications` — toggle batching, set briefing time
+      - `/safe_mode <on|off> <code_word> <cover_topic>` — activate Safe Mode (Voice agent disguises financial messages as the cover topic)
+      - `/stealth_mode <on|off>` — toggle Stealth (hides amounts)
+      - `/simplified_mode <on|off>` — toggle Simplified (≤2 sentences, ≤2 options, 6th-grade vocab)
+      - `/blocked_merchants add|remove|list <merchant>` — manage block list
+      - `/affiliates <on|off>` — toggle affiliate recommendations
+      - `/relink_phone <new_phone>` — start phone-number re-linking flow (verification via SMS once 2.7 unblocks, or via Telegram in the meantime)
+      - `/trusted_contact <name> <channel>` — set trusted contact for 90-day inactivity export
+      - `/quick_exit` — for Safe Mode users; bot calls `deleteMessage` on the last N messages in the chat to wipe recent history
+    - Each handler validates input with Zod, persists to `users` / `user_preferences`, and confirms the change via Voice.
+    - **Test:** Each command updates the right column, invalid args return a clear error message, Safe Mode `/quick_exit` removes recent messages, blocked merchants persist, phone re-link transfers data.
     - _Requirements: 3.3, 3.5, 3.7, 7.1, 10.3, 13.2, 20.4_
 
 - [ ] 8. Checkpoint — Ensure Wave 4 features pass all tests
@@ -620,7 +657,7 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
       - Wire the complete MVP flow end-to-end:
         1. User sends first message — Voice responds with crew intro (< 5 seconds)
         2. Onboarding conversation (personality, goal, cultural prefs) within 5 exchanges
-        3. User connects bank via portal — Phase 0 to Phase 1 transition
+        3. User runs `/link_bank` in Telegram — bot sends Plaid Hosted Link or SimpleFIN setup URL (3.10) — Phase 0 to Phase 1 transition on success
         4. Watcher scans 90 days of transactions — identifies recurring charges — flags unused subs (45+ days)
         5. Voice presents unused subs with monthly cost — "Holy Shit Moment" (first insight within 60 seconds of bank connect)
         6. User says "cancel it" — Conductor classifies intent — routes to Fixer
@@ -638,10 +675,10 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - **Depends on:** 2.4, 3.6 (Wave 5)
     - Create `src/lib/trust/transitions.ts`:
       - Wire phase transitions into the full system:
-        - Phase 0 to 1: triggered by `link-bank` API route
-        - Phase 1 to 2: triggered by user chat command "enable actions" or portal toggle
+        - Phase 0 to 1: triggered by `/link_bank` chat flow (3.10)
+        - Phase 1 to 2: triggered by user chat command `/enable_actions`
         - Phase 2 to 3: triggered when eligibility check passes (20+ approvals, >70% rate, KYC)
-        - Voluntary downgrade: chat command or portal setting
+        - Voluntary downgrade: chat command `/downgrade <phase>`
         - Kill switch: STOP command from any phase
         - Re-engagement: killed to Phase 0 when user re-engages
       - Each transition logged in `agent_event_logs`
@@ -662,9 +699,8 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
         6. Send confirmation to user via Voice (on all channels)
       - Return `KillSwitchResult` with timing and status of each step
     - Wire STOP command detection in Conductor (bypass queue — immediate execution)
-    - Wire STOP button in every Voice action message
-    - Wire kill switch button on every portal page
-    - **Test:** Kill switch completes <5s, all tokens revoked, vault locked, operations halted, confirmation sent, STOP command works from chat, button works from portal
+    - Wire STOP button in every Voice action message (Telegram inline keyboard now; SMS reply code + WhatsApp button when those channels come online)
+    - **Test:** Kill switch completes <5s, all tokens revoked, vault locked, operations halted, confirmation sent, STOP command works from chat (Telegram, plus SMS/WhatsApp once those channels are live)
     - _Requirements: 8.11, 9.6, 10.6_
 
   - [ ] 5.4 Safe mode, Stealth mode, and Survival mode
@@ -688,27 +724,38 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - _Requirements: 13.1, 13.2, 13.7, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7_
 
   - [ ] 5.5 Couples mode (Crew For Two)
-    - **Depends on:** 2.4, 2.7 (Wave 5)
-    - Create couples API routes: `POST /api/couples/link`, `POST /api/couples/accept`, `DELETE /api/couples/unlink`
+    - **Depends on:** 2.4, 2.1, 3.6 (Wave 5)
+    - **Rewritten 2026-04-29 (was: web auth-gated couples API).** Couples linking happens entirely in Telegram via shared invite codes — no web auth, no portal pages.
+    - Chat commands (handled by Conductor 3.6):
+      - `/link_partner` — generates a 6-character invite code, stored in `couples_links` with `inviter_user_id` and a 24-hour expiry. Bot DMs the code to the inviter to share with their partner via any channel.
+      - `/accept_partner <code>` — partner runs in their own Telegram chat. Validates code, marks `couples_links.status = 'active'`, sets `user_a` / `user_b` ids.
+      - `/unlink_partner` — either partner can run; sets status to `unlinked`, separates accounts cleanly.
     - Create `src/lib/couples/shared-view.ts`:
       - Aggregate transactions and insights from both users
       - Maintain separate trust levels per partner
-      - Shared action approval: require both partners for joint account actions
+      - Shared action approval: require both partners for joint account actions. Voice posts the action prompt to **both** Telegram chats with inline `Approve` / `Reject` buttons; both must approve for the action to execute.
       - Rejection wins all conflicts on shared decisions
     - Voice delivers communications individually per partner with their own personality mode
-    - **Test:** Link/accept/unlink flow, shared view aggregates correctly, separate trust levels, both-partner approval for shared actions, rejection wins, unlinking separates cleanly
+    - **Test:** Invite-code flow links two test users, shared view aggregates correctly, separate trust levels, both-partner approval required for shared actions (one approval insufficient), rejection wins, unlinking separates cleanly.
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6_
 
   - [ ] 5.6 Hardship pricing and subscription tier management
-    - **Depends on:** 2.7 (Wave 5)
+    - **Depends on:** 2.4, 2.1, 3.6 (Wave 5)
+    - **Rewritten 2026-04-29 (was: web-portal billing).** Tier management and billing run inside Telegram via the bot's native Payments API. No checkout page hosted by us.
     - Create `src/lib/subscriptions/tier-manager.ts`:
       - `getCurrentTier(userId)`, `upgradeToPremium(userId)`, `applyHardshipPricing(userId)`, `startFreeTrial(userId)`
       - Feature gating: check tier before allowing browser automation, WhatsApp, autopilot, LLM Voice
       - Hardship pricing ($1.99/month) when Watcher detects sustained stress
+    - Chat commands (handled by Conductor 3.6):
+      - `/upgrade` — bot calls Telegram Bot API `sendInvoice` with Stripe as the provider; user completes payment **inside Telegram** (Stripe is invoked by Telegram, not embedded by us)
+      - `/tier` — show current tier and benefits
+      - `/hardship` — request hardship pricing if Watcher hasn't auto-detected
+      - `/trial` — start a 7-day Premium trial (one per user)
+    - Create `src/app/api/webhooks/telegram-payment/route.ts` — handles Telegram's `pre_checkout_query` and `successful_payment` updates; activates premium tier and confirms via Voice.
     - Create `src/agents/voice/upsell.ts`:
-      - When free user attempts premium action: explain limitation, offer 7-day trial
+      - When free user attempts premium action: explain limitation, offer 7-day trial via inline keyboard `Start trial` button
       - Never gate overdraft predictions behind premium
-    - **Test:** Tier checks gate features correctly, hardship pricing triggers on stress indicators, free trial activates and expires, overdraft alerts available on all tiers
+    - **Test:** `/upgrade` flow completes via Telegram Payments end-to-end (Stripe test card), tier checks gate features correctly, hardship pricing triggers on stress indicators, free trial activates and expires, overdraft alerts available on all tiers.
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8_
 
   - [ ] 5.7 Hunter agent — government benefits and opportunity search
@@ -737,13 +784,20 @@ This plan is structured in **5 waves** for maximum parallel execution. Multiple 
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 13.5_
 
   - [ ] 5.9 Data export and health monitoring
-    - **Depends on:** 1.1, 1.2, 1.4 (Wave 5)
-    - Create `src/app/api/export/data/route.ts` — `GET /api/export/data` (JSON/CSV, authenticated, rate-limited)
-    - Create `src/app/api/health/route.ts` — `GET /api/health` (Supabase, Redis, queue depths)
+    - **Depends on:** 1.1, 1.2, 1.4, 3.6 (Wave 5)
+    - **Rewritten 2026-04-29 (was: web download endpoint).** Data export is delivered as a Telegram document attachment, not a web download.
+    - Chat command `/export_data` (handled by Conductor 3.6):
+      - Generate JSON or CSV of all user data server-side
+      - Rate-limited (1 export per user per day)
+      - Send via Telegram Bot API `sendDocument` (50MB limit, plenty for personal financial export)
+      - Confirm via Voice with file size + contents summary
+    - Create `src/lib/export/generator.ts` — `generateExport(userId, format)` returns a Buffer for `sendDocument`.
+    - `GET /api/health` — Supabase + Redis connectivity (already shipped)
+    - `GET /api/health/integration` — Supabase write/read + Redis set/get round-trip (already shipped)
     - Create `src/app/api/health/agents/route.ts` — `GET /api/health/agents` (per-agent metrics)
-    - Create `src/app/api/cron/agent-health/route.ts` — cron to check agent health, trigger failover
-    - Create `src/lib/trust/trusted-contact.ts` — grant read-only export after 90 days inactivity
-    - **Test:** Data export includes all user data, health endpoints return correct status, agent health tracks metrics, trusted contact access after 90 days
+    - `src/app/api/cron/agent-health/route.ts` — cron to check agent health, trigger failover (schedule already in `vercel.json`)
+    - Create `src/lib/trust/trusted-contact.ts` — after 90 days of user inactivity, generate a read-only export and DM it to the trusted contact's Telegram (or SMS the file URL once 2.7 unblocks for SMS-only contacts)
+    - **Test:** `/export_data` sends a document attachment in Telegram, rate limit enforced, file contents complete, health endpoints return correct status, agent health tracks metrics, trusted-contact access triggers after 90 days inactivity.
     - _Requirements: 19.7, 20.5, 20.6, 2.8_
 
 - [ ] 10. Final checkpoint — Ensure all tests pass across all waves
