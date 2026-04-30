@@ -2,11 +2,13 @@
 
 ## Introduction
 
-RealValue is a team of AI agents that live inside your messaging apps — WhatsApp, Telegram, and SMS. There is no app to download. You message your crew like you'd message a friend, and they DO things for you: cancel subscriptions, negotiate bills, find government benefits, predict overdrafts, and fight for every dollar you're leaving on the table.
+RealValue is a team of AI agents that live inside your messaging apps. **Telegram is the primary channel**, with **SMS as an alternative** (currently pending Twilio A2P 10DLC carrier approval) and **WhatsApp planned for post-MVP**. There is no app to download. You message your crew like you'd message a friend, and they DO things for you: cancel subscriptions, negotiate bills, find government benefits, predict overdrafts, and fight for every dollar you're leaving on the table.
 
 Built for students drowning in fees, single parents juggling three jobs, and paycheck-to-paycheck families who could never afford a financial advisor — RealValue replaces the $5,000/year advisor with a $4.99/month AI crew that never sleeps, never judges, and never stops looking for ways to save you money.
 
-The system is a multi-agent architecture where five specialized agents (Conductor, Watcher, Fixer, Hunter, Voice) collaborate behind a single conversational personality. Users interact through chat-first messaging platforms, with a minimal web portal only for bank linking, credential management, and settings. Trust is earned progressively through a four-phase Trust Ladder, and every action the system takes is transparent, reversible, and auditable.
+The system is a multi-agent architecture where five specialized agents (Conductor, Watcher, Fixer, Hunter, Voice) collaborate behind a single conversational personality. **Users interact entirely through chat** — there is no authenticated web portal. The public web surface is limited to a marketing landing page (`/`), legal pages (`/privacy`, `/terms` — required for Twilio A2P 10DLC review), and server-side webhook/API endpoints. Trust is earned progressively through a four-phase Trust Ladder, and every action the system takes is transparent, reversible, and auditable.
+
+**Deployment topology:** Vercel hosts the Next.js app, public landing/legal pages, all webhook and API routes, and serverless functions for the fast agents (Conductor, Voice, Watcher, Hunter — all sub-10s per job). **Only the Fixer browser worker** runs on a long-running Railway/Fly.io container — required because Playwright sessions take minutes. Redis (Upstash) and Supabase are shared by both hosts.
 
 The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds unused subscriptions, you say "cancel it" in chat, and the Fixer cancels it — then you get a shareable card showing how much you saved.
 
@@ -23,10 +25,10 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 - **Phase_2**: Small actions mode. Per-action limit $25, daily limit $100. Every action requires explicit user approval (copilot mode). STOP command always visible.
 - **Phase_3**: Autopilot mode. Tier 1 actions auto-execute, Tier 2 actions execute with notification and 24-hour undo window, Tier 3 actions require approval. Kill switch available at all times.
 - **Ghost_Action**: A simulated action shown to the user during Phase 1 that demonstrates what the system WOULD have done if given permission, along with the dollar amount saved. Creates a running total of missed savings to motivate trust progression.
-- **Credential_Vault**: AES-256 encrypted storage for service login credentials (Netflix, Hulu, etc.), encrypted with a key derived from the user's 6-digit PIN. Managed exclusively through the web portal. Credentials are decrypted only in ephemeral sandboxed containers and discarded after use.
+- **Credential_Vault**: AES-256-GCM encrypted storage for service login credentials (Netflix, Hulu, etc.), encrypted with a key derived from the user's 6-digit PIN (PBKDF2, 100K iterations). Managed entirely through Telegram chat commands (`/vault add`, `/vault list`, `/vault delete`); the user's PIN is collected via a `force_reply` prompt that the bot deletes immediately on receipt to keep PIN out of chat history. Credentials are decrypted only in ephemeral sandboxed containers and discarded after use.
 - **Compatibility_Database**: A community-maintained, open-source database tracking browser automation success rates per service provider. Updated when providers change their interfaces or block automation.
 - **Shareable_Card**: A generated image (via @vercel/og) showing a user's savings achievement, formatted for sharing in WhatsApp/Telegram groups. Includes invite link. The output IS the marketing.
-- **Safe_Mode**: A domestic violence protection feature activated by a user-defined code word. Financial messages are disguised as innocuous content. Web portal includes quick-exit button.
+- **Safe_Mode**: A domestic violence protection feature activated by a user-defined code word. Financial messages are disguised as innocuous content (cover topic of user's choice). The `/quick_exit` chat command calls Telegram's `deleteMessage` API on the last N messages to wipe visible chat history.
 - **Survival_Mode**: Automatically activated during detected financial stress (job loss, sudden income drop). Shifts all agent priorities to essential spending, pauses non-critical notifications, and focuses on emergency resources.
 - **Stealth_Mode**: Privacy feature where financial messages are vague enough that someone reading the chat wouldn't learn specific dollar amounts or account details.
 - **Kill_Switch**: The STOP command that immediately revokes all bank tokens, locks the Credential Vault, halts all agent operations, and puts the system in a safe state.
@@ -41,7 +43,11 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 - **Hype_Mode**: Voice personality that celebrates financial wins with enthusiasm and encouragement.
 - **Zen_Mode**: Voice personality designed for financial anxiety — uses calming language, optionally hides specific numbers, focuses on progress over perfection.
 - **Mentor_Mode**: Voice personality that explains financial concepts in simple educational terms.
-- **Crew_For_Two**: Couples mode where two users share a linked financial view with separate trust levels, where rejection by either partner wins conflicts on shared decisions.
+- **Crew_For_Two**: Couples mode where two users share a linked financial view with separate trust levels, where rejection by either partner wins conflicts on shared decisions. Linking is initiated via the `/link_partner` Telegram chat command, which mints a 6-character invite code the inviter shares with their partner; the partner accepts via `/accept_partner <code>` in their own chat.
+- **Web_Portal** *(DEPRECATED 2026-04-29)*: Originally specified as a minimal authenticated UI for bank linking, settings, and credential management. **Removed in the Telegram-first pivot.** All Web_Portal functions are now Telegram chat commands and inline keyboards. The term remains in glossary form only to flag historical references in older documents; in current language, replace with the appropriate chat command (e.g., `/link_bank`, `/settings`, `/vault`).
+- **Telegram_Inline_Keyboards**: Telegram's native one-tap button UI attached to bot messages. Used for approve/reject/snooze on action requests, personality mode selection, account unlink confirmations, and any other choice where the original Web_Portal would have rendered buttons. Inline keyboards persist with the message they're attached to (no session state required).
+- **Telegram_Resolved_Session**: Authentication model adopted in the 2026-04-29 pivot. The Telegram webhook (task 2.1) resolves a recognized `telegram_user_id` to its user row and issues a random `session_token` (UUID) stored in Redis with a 7-day TTL. Server endpoints called from chat handlers (vault, billing, etc.) accept this token via cookie or header. Replaces the originally-specified SMS magic-link session, which is now fallback-only and `[TBD on use]` until Twilio A2P 10DLC clears.
+- **A2P_10DLC**: Application-to-Person 10-digit-long-code messaging compliance regime imposed by US wireless carriers (AT&T, T-Mobile, Verizon). Requires brand and campaign registration before SMS traffic can be sent at scale to general phone numbers. Currently in carrier review for RealValue (submitted 2026-04-29, ETA 1–4 weeks). Until approved, SMS magic-link auth is `[TBD on use]` — Telegram is the only operational chat channel.
 
 
 ## Requirements
@@ -66,29 +72,31 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 
 #### Acceptance Criteria
 
-1. THE Voice SHALL deliver all user-facing communication through Telegram Bot API as the primary free-tier channel.
-2. WHERE the user has a Premium subscription, THE Voice SHALL deliver communication through WhatsApp Business API as the primary channel.
-3. IF the primary messaging channel (Telegram or WhatsApp) becomes unavailable, THEN THE Voice SHALL fall back to Twilio SMS delivery within 30 seconds.
+1. THE Voice SHALL deliver all user-facing communication through Telegram Bot API as the primary channel for **all tiers** in MVP. (WhatsApp is post-MVP; SMS is the alternative channel for users without Telegram, gated on Twilio A2P 10DLC carrier approval.)
+2. **WHERE WhatsApp Business API has shipped** (post-MVP), THE Voice MAY deliver Premium-tier communication through WhatsApp as the primary channel — this clause is forward-looking and not in V1 scope.
+3. IF the primary messaging channel (Telegram) becomes unavailable AND SMS is operational (post-A2P), THEN THE Voice SHALL fall back to Twilio SMS delivery within 30 seconds. **Pre-A2P, an outage of Telegram leaves the user without an active chat channel** — surface a clear status banner via the marketing landing page and resume on Telegram recovery.
 4. THE Voice SHALL batch non-urgent notifications into a maximum of 3-5 messages per day, delivered as a morning briefing plus action requests.
-5. WHEN the Voice delivers an action request via WhatsApp, THE Voice SHALL include interactive message buttons (approve / reject / snooze) for one-tap response.
+5. **(Post-MVP)** WHEN the Voice delivers an action request via WhatsApp, THE Voice SHALL include interactive message buttons (approve / reject / snooze) for one-tap response.
 6. WHEN the Voice delivers an action request via Telegram, THE Voice SHALL include inline keyboard buttons (approve / reject / snooze) for one-tap response.
 7. THE Voice SHALL present all agent communications through a single unified personality, regardless of which backend agent generated the content.
-8. THE Voice SHALL maintain conversation context across messaging sessions using the user's phone number as the persistent identity, with conversation state stored in Supabase.
-9. IF the user sends a message on a different messaging platform than their primary channel, THEN THE Voice SHALL recognize the user by phone number and continue the conversation seamlessly.
+8. THE Voice SHALL maintain conversation context across messaging sessions using `telegram_user_id` as the canonical identity for chat resolution at webhook time, with `phone_number` as a secondary identifier for SMS routing (post-A2P). Conversation state is stored in Supabase.
+9. IF the user sends a message on a different messaging platform than their primary channel (post-A2P, post-WhatsApp), THEN THE Voice SHALL recognize the user by `telegram_user_id` (if available) or `phone_number` and continue the conversation seamlessly.
 
-### Requirement 3: Web Portal (Minimal Scope)
+### Requirement 3: Chat-First Account Management
 
-**User Story:** As someone who doesn't trust giving my bank login to a chat bot, I want a secure web page where I can connect my bank and manage sensitive settings, so that I feel safe knowing my credentials aren't floating around in a chat.
+*(Originally "Web Portal (Minimal Scope)" — rewritten 2026-04-29 in the Telegram-first pivot. The web portal was deleted in task 2.8; all account-management flows now happen in chat.)*
+
+**User Story:** As someone who's already in Telegram all day, I want to link my bank, manage credentials, and change settings without ever leaving the chat — and I want any browser-based steps (like Plaid's bank picker) to happen on the bank's own domain, not a website I have to trust separately.
 
 #### Acceptance Criteria
 
-1. THE Web_Portal SHALL provide a Plaid Link or SimpleFIN connection flow for users to link bank accounts with read-only access.
-2. THE Web_Portal SHALL provide a Credential_Vault management interface where users can add, update, and delete service login credentials.
-3. THE Web_Portal SHALL provide a settings interface for personality mode selection, notification preferences, trusted contact designation, and channel preferences.
-4. THE Web_Portal SHALL NOT replicate any financial monitoring, insight, or action functionality available through the chat interface.
-5. WHEN a user in Safe_Mode accesses the Web_Portal, THE Web_Portal SHALL display a quick-exit button that immediately navigates to a neutral website.
-6. THE Web_Portal SHALL require authentication via a magic link sent to the user's registered phone number.
-7. THE Web_Portal SHALL allow users to re-link their phone number if it changes, transferring all conversation state and account data to the new number.
+1. THE system SHALL provide bank account linking via Telegram chat commands. The `/link_bank` command (Premium / Plaid path) SHALL generate a one-time **Plaid Hosted Link** URL with `redirect_uri` set to a server-only callback (`/api/banking/plaid-callback`); the bot DMs the URL, the user completes Plaid's flow on `link.plaid.com` (Plaid's domain — not ours), and the callback exchanges the public token, stores the connection, and posts confirmation back to Telegram. The `/link_simplefin` command (Free / SimpleFIN path) SHALL accept a pasted access URL from `bridge.simplefin.org` directly in chat.
+2. THE system SHALL provide Credential_Vault management via Telegram chat commands (`/vault add`, `/vault list`, `/vault update`, `/vault delete`). PIN entry SHALL use Telegram's `force_reply` mechanism, and the user's PIN reply SHALL be deleted by the bot immediately on receipt to keep PIN out of chat history.
+3. THE system SHALL provide settings management via Telegram chat commands and inline keyboards: `/personality` (savage/hype/zen/mentor), `/notifications`, `/safe_mode`, `/stealth_mode`, `/simplified_mode`, `/blocked_merchants`, `/affiliates`, `/trusted_contact`, `/relink_phone`. No hosted settings page.
+4. THE system SHALL NOT operate any authenticated user-facing web pages. The public web surface is limited to: the marketing landing (`/`), legal pages (`/privacy`, `/terms` — required for Twilio A2P 10DLC review), and server-side webhook/API endpoints (no rendered HTML for users to navigate).
+5. WHEN a user in Safe_Mode runs `/quick_exit`, THE system SHALL invoke Telegram's `deleteMessage` API on the last N messages in the chat to wipe visible chat history.
+6. **[TBD on use]** THE system SHALL support magic-link SMS authentication as an alternative to Telegram-resolved sessions, intended for users who don't use Telegram or who lose Telegram access. This path is gated on Twilio A2P 10DLC carrier approval (in review since 2026-04-29). Until approved, Telegram is the only operational auth surface — chat identity is resolved by `telegram_user_id` at webhook time and a `session_token` is issued for any server endpoints called from chat handlers.
+7. THE system SHALL allow users to re-link their phone number via the `/relink_phone <new_number>` chat command, transferring all conversation state and account data to the new number after verification (via SMS once 2.7 unblocks, or via Telegram-only confirmation in the meantime).
 
 ### Requirement 4: Watcher — Transaction Monitoring and Insight Detection
 
@@ -138,7 +146,7 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 2. WHEN the Hunter identifies a government benefit the user may qualify for, THE Hunter SHALL present the benefit name, estimated monthly value, eligibility requirements, and a one-tap action to begin the application process.
 3. THE Hunter SHALL search for higher-yield savings accounts and compare them against the user's current savings rate, presenting opportunities where the rate difference would yield more than $10 per year on the user's current balance.
 4. WHEN the Hunter recommends a financial product that generates affiliate commission, THE Hunter SHALL clearly disclose the affiliate relationship, show the full savings math, display the commission amount, and rank recommendations by user savings — not by commission value.
-5. THE Hunter SHALL allow users to disable affiliate recommendations entirely via a setting in the Web_Portal.
+5. THE Hunter SHALL allow users to disable affiliate recommendations entirely via the `/affiliates off` Telegram chat command.
 6. THE Hunter SHALL search for refunds owed to the user (class action settlements, overcharges, government rebates) by monitoring public settlement databases and matching against the user's transaction history.
 7. WHEN the Hunter finds a cheaper alternative for a service the user currently pays for, THE Hunter SHALL present a side-by-side comparison showing the current cost, alternative cost, annual savings, and any trade-offs.
 8. THE Hunter SHALL NOT recommend any government program that requires citizenship or legal residency status unless the user has explicitly confirmed their eligibility status during onboarding.
@@ -166,15 +174,15 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 #### Acceptance Criteria
 
 1. THE Trust_Ladder SHALL start every new user at Phase_0 (chat only, no bank access, relationship building and generic financial tips).
-2. WHEN a user connects a bank account via the Web_Portal, THE Trust_Ladder SHALL advance the user to Phase_1 (read-only monitoring with Ghost_Actions).
+2. WHEN a user connects a bank account via the `/link_bank` (Plaid) or `/link_simplefin` (SimpleFIN) Telegram chat flow, THE Trust_Ladder SHALL advance the user to Phase_1 (read-only monitoring with Ghost_Actions).
 3. WHILE a user is in Phase_1, THE Watcher SHALL generate Ghost_Actions showing what the system would have done and the dollar amount that would have been saved, maintaining a running total of missed savings.
-4. WHEN a user explicitly enables actions via the Web_Portal or chat command, THE Trust_Ladder SHALL advance the user to Phase_2 (small actions with copilot approval).
+4. WHEN a user explicitly enables actions via the `/enable_actions` Telegram chat command, THE Trust_Ladder SHALL advance the user to Phase_2 (small actions with copilot approval).
 5. WHILE a user is in Phase_2, THE Fixer SHALL enforce a per-action limit of $25 and a daily aggregate limit of $100, and require explicit user approval for every action.
 6. WHILE a user is in Phase_2, THE Voice SHALL display a visible STOP command option with every action request message.
 7. WHEN a user has approved 20 or more actions in Phase_2 AND maintains an approval rate above 70% AND the system has demonstrated real dollar impact, THE Trust_Ladder SHALL offer advancement to Phase_3 (autopilot).
 8. THE Trust_Ladder SHALL require KYC_Verification before allowing advancement to Phase_3.
 9. WHILE a user is in Phase_3, THE Fixer SHALL auto-execute Tier 1 actions (low-risk, under $10, reversible), execute Tier 2 actions with notification and a 24-hour undo window, and require explicit approval for Tier 3 actions (high-value, irreversible, or first-time provider).
-10. THE Trust_Ladder SHALL allow a user to voluntarily downgrade to any lower phase at any time via chat command or Web_Portal setting.
+10. THE Trust_Ladder SHALL allow a user to voluntarily downgrade to any lower phase at any time via the `/downgrade <phase>` Telegram chat command.
 11. WHEN a user sends the STOP command at any phase, THE Kill_Switch SHALL immediately revoke all bank tokens, lock the Credential_Vault, halt all in-progress agent operations, and confirm the safe state to the user within 5 seconds.
 
 
@@ -194,7 +202,7 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 8. THE Voice SHALL never transmit full account numbers in any message — only the last 4 digits of any account identifier SHALL be displayed.
 9. THE system SHALL require KYC_Verification before granting Phase_3 autopilot access.
 10. THE Fixer SHALL execute all browser automation sessions in ephemeral sandboxed containers that are destroyed after each session, ensuring no credential residue persists.
-11. THE system SHALL enforce TLS 1.2 or higher for all data in transit between system components, messaging platforms, bank data providers, and the Web_Portal.
+11. THE system SHALL enforce TLS 1.2 or higher for all data in transit between system components, messaging platforms, bank data providers, and the public web surface (marketing landing, legal pages, webhook/API endpoints).
 12. THE system SHALL store all sensitive data at rest (credentials, tokens, financial data) using AES-256 encryption in Supabase with row-level security policies enforcing user isolation.
 
 ### Requirement 10: Guardrails and Action Safety
@@ -205,10 +213,10 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 
 1. WHILE a user is in Phase_2, THE Fixer SHALL reject any single action with a financial impact exceeding $25.
 2. WHILE a user is in Phase_2, THE Fixer SHALL reject any action that would cause the user's daily aggregate action total to exceed $100.
-3. THE Fixer SHALL maintain a blocked-merchants list (user-configurable via Web_Portal) and refuse to execute any action targeting a blocked merchant.
+3. THE Fixer SHALL maintain a blocked-merchants list (user-configurable via the `/blocked_merchants` Telegram chat command) and refuse to execute any action targeting a blocked merchant.
 4. WHEN the Fixer is about to execute a destructive action, THE Fixer SHALL impose a 60-second delay with a clearly visible cancel button, and cross-reference the pending action against the original user request before proceeding.
 5. WHILE a user is in Phase_3, THE Fixer SHALL classify every action into Tier 1 (auto-execute: low-risk, under $10, reversible), Tier 2 (execute and notify: medium-risk, 24-hour undo window), or Tier 3 (require approval: high-value, irreversible, or first-time provider).
-6. THE system SHALL provide a Kill_Switch (STOP command) accessible from every chat message and every Web_Portal page that halts all operations within 5 seconds.
+6. THE system SHALL provide a Kill_Switch (STOP command) accessible from every chat message — both as a text command (`STOP`) and as an inline keyboard button on every action request — that halts all operations within 5 seconds.
 7. WHEN the Fixer executes an action that results in an incorrect outcome (wrong subscription cancelled, wrong amount), THE system SHALL provide an immediate remediation path and log the incident for Compatibility_Database update.
 8. THE Fixer SHALL never execute two destructive actions on the same account within a 5-minute window without explicit re-confirmation from the user.
 
@@ -223,7 +231,7 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 3. WHEN a user connects their bank account during onboarding, THE Watcher SHALL complete an initial transaction scan and identify at least one actionable insight (unused subscription, bill increase, savings opportunity) within 60 seconds.
 4. WHEN the first actionable insight is identified, THE Voice SHALL present it as the "Holy Shit Moment" — a specific dollar amount the user is wasting or missing, with a one-tap action to fix it.
 5. THE Voice SHALL ask about immigration status sensitivity, religious finance preferences (halal, Shariah-compliant options), and accessibility needs (simplified mode) during onboarding without requiring the user to volunteer this information unprompted.
-6. WHEN onboarding is complete and the user has connected a bank account, THE system SHALL generate a "text MONEY to [number]" SMS onboarding code that the user can share with friends — no app download required.
+6. WHEN onboarding is complete and the user has connected a bank account, THE system SHALL generate a Telegram deep link (e.g., `t.me/RealValueAIBot?start=ref_<code>`) the user can share with friends — no app download required. **(Post-A2P)** A "text MONEY to [number]" SMS onboarding code SHALL also be available as an alternative invite mechanism.
 
 ### Requirement 12: Shareable Moments and Viral Growth
 
@@ -246,7 +254,7 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 #### Acceptance Criteria
 
 1. WHEN a user activates Safe_Mode via their designated code word in chat, THE Voice SHALL immediately disguise all subsequent financial messages as innocuous content (weather updates, recipe suggestions, or other user-selected cover topics).
-2. WHILE Safe_Mode is active, THE Web_Portal SHALL display a quick-exit button on every page that immediately navigates to a neutral website and clears the browser's back-navigation history for the portal.
+2. WHILE Safe_Mode is active, THE bot SHALL respond to the `/quick_exit` Telegram chat command by calling the `deleteMessage` API on the last N messages, wiping the visible chat history of any financial content. (No web portal exists — there is no browser history to clear.)
 3. WHEN the Voice detects keywords or sentiment patterns associated with gambling or addiction, THE Voice SHALL respond without judgment, gently offer to track the spending pattern, and provide helpline links — never lecture or moralize.
 4. THE Hunter SHALL NOT recommend any government program requiring citizenship or legal residency unless the user has explicitly confirmed their status, protecting undocumented immigrants from inadvertent exposure.
 5. WHEN a user indicates religious finance preferences during onboarding (halal, Shariah-compliant, kosher), THE Hunter SHALL filter all recommendations to comply with the stated preferences and search specifically for compliant financial products.
@@ -303,7 +311,7 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 
 #### Acceptance Criteria
 
-1. WHEN two users link their accounts via the Crew_For_Two setup flow in the Web_Portal, THE system SHALL create a shared financial view that aggregates transactions and insights from both users' linked accounts.
+1. WHEN two users link their accounts via the Crew_For_Two setup flow in Telegram (`/link_partner` mints a 6-character invite code; the partner accepts via `/accept_partner <code>` in their own chat), THE system SHALL create a shared financial view that aggregates transactions and insights from both users' linked accounts.
 2. THE Trust_Ladder SHALL maintain separate trust levels for each partner in a Crew_For_Two pair, and each partner SHALL only be able to approve actions on their own linked accounts.
 3. WHEN the Fixer proposes an action that affects a shared financial decision (joint account, shared subscription), THE Fixer SHALL require approval from both partners before execution.
 4. IF either partner rejects a shared action, THEN THE Fixer SHALL treat the rejection as final — rejection wins all conflicts on shared decisions.
@@ -321,7 +329,7 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 3. THE system SHALL enforce row-level security (RLS) policies on all tables containing user data, ensuring that each user can only access their own records (with Crew_For_Two shared access as the sole exception, scoped to the linked partner).
 4. THE system SHALL maintain referential integrity across all foreign key relationships with cascading deletes disabled — deletions SHALL use soft-delete (is_deleted flag with deleted_at timestamp) to preserve audit trails.
 5. THE action_logs table SHALL be append-only (no UPDATE or DELETE operations permitted) to maintain an immutable audit trail of all agent actions.
-6. THE system SHALL store the user's phone number as the canonical identity key, with messaging platform identifiers (Telegram user ID, WhatsApp number) linked as secondary identifiers.
+6. THE system SHALL identify users by `telegram_user_id` as the canonical identity at webhook time (set in 2.1), with `phone_number` as a secondary identifier for SMS routing (post-A2P) and post-MVP WhatsApp lookup. The `users.phone_number` column SHALL be UNIQUE NULLABLE — Telegram-only users may have a NULL phone until they opt into SMS.
 7. FOR ALL monetary values stored in the database, reading then writing the same value SHALL produce a byte-identical result (round-trip integrity for numeric precision).
 
 ### Requirement 19: Background Operations and Agent Scheduling
@@ -330,7 +338,7 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 
 #### Acceptance Criteria
 
-1. THE system SHALL run a scheduled sync job (via Vercel cron or equivalent) that triggers bank data synchronization at least every 6 hours for active users.
+1. THE system SHALL run a scheduled sync job (via Vercel cron) that triggers bank data synchronization at least daily for active users on the Vercel free tier (free-tier cron limit), upgradable to 6-hour cadence on Vercel Pro or via an external scheduler.
 2. WHEN a bank sync completes, THE Conductor SHALL trigger the Watcher to analyze new transactions, update overdraft predictions, and generate any new insights or Ghost_Actions.
 3. THE system SHALL use Redis and BullMQ for job queue management, ensuring that agent tasks are processed reliably with retry logic (maximum 3 retries with exponential backoff) and dead-letter queues for failed jobs.
 4. THE Voice SHALL batch all non-urgent notifications into a morning briefing (delivered at the user's preferred time, defaulting to 8:00 AM local time) containing: overnight insights, pending action requests, and a daily financial snapshot.
@@ -345,12 +353,12 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 
 #### Acceptance Criteria
 
-1. THE system SHALL support multi-channel messaging from day one (Telegram, WhatsApp, SMS) so that if any single platform bans or restricts the bot, users can continue on an alternative channel without data loss.
+1. THE system SHALL be **architecturally ready** for multi-channel messaging (Telegram, WhatsApp, SMS) so that as carrier/platform approvals complete, alternative channels can be enabled without data loss. **MVP day-one is Telegram only**; SMS comes online post-Twilio-A2P-10DLC approval; WhatsApp is post-MVP.
 2. THE system SHALL store all conversation state and user data in Supabase (not on the messaging platform), ensuring that platform-level disruptions do not result in data loss.
 3. THE system SHALL maintain SimpleFIN as a parallel bank data integration alongside Plaid, with an abstraction layer that allows switching between providers without user-facing disruption, protecting against Plaid pricing changes or service interruptions.
-4. WHEN a user changes their phone number, THE Web_Portal SHALL provide a re-linking flow that transfers all account data, conversation state, trust level, and preferences to the new phone number after identity verification.
-5. THE system SHALL allow users to designate a trusted contact via the Web_Portal who will receive read-only data export access after 90 days of account inactivity (for cases of user death or incapacitation).
-6. THE system SHALL provide a full data export capability (all transactions, actions, insights, and settings) in a standard machine-readable format (JSON or CSV) accessible via the Web_Portal at any time.
+4. WHEN a user changes their phone number, THE `/relink_phone <new_number>` Telegram chat command SHALL initiate a re-linking flow that transfers all account data, conversation state, trust level, and preferences to the new phone number after identity verification (via SMS once A2P clears, or Telegram-only confirmation in the meantime).
+5. THE system SHALL allow users to designate a trusted contact via the `/trusted_contact <name> <channel>` Telegram chat command. The trusted contact SHALL receive read-only data export access after 90 days of account inactivity (for cases of user death or incapacitation), delivered as a Telegram document attachment to the contact (or SMS link once A2P clears, if the contact prefers SMS).
+6. THE system SHALL provide a full data export capability (all transactions, actions, insights, and settings) in a standard machine-readable format (JSON or CSV), delivered as a Telegram document attachment via the `/export_data` chat command (rate-limited to 1 export per user per day). 50 MB is plenty for a typical personal financial export.
 
 ### Requirement 21: MVP — The Subscription Assassin (V1)
 
@@ -365,3 +373,18 @@ The MVP (V1) is the Subscription Assassin: connect your bank, the Watcher finds 
 5. WHEN the Fixer cancels multiple subscriptions in a single session, THE system SHALL generate a summary Shareable_Card showing: the total number of subscriptions cancelled, the total monthly savings, the total annual savings projection, and an invite link.
 6. THE Watcher SHALL continue monitoring for new unused subscriptions on an ongoing basis after the initial scan, alerting the user when a previously active subscription becomes unused.
 7. ALL subscription cost calculations and savings projections SHALL use the Deterministic_Layer with exact numeric types to ensure accuracy.
+
+### Requirement 22: Public Web Surface Scope (Telegram-First Pivot Forcing Function)
+
+*Added 2026-04-29 alongside the rewrite of Requirement 3. The portal pages were deleted in task 2.8; this requirement exists to prevent regression — any future contributor proposing a new authenticated user-facing page violates this requirement and must be redirected to a chat-command equivalent.*
+
+**User Story:** As the founder building this solo to scale to a billion-dollar one-person company, I need the architecture to be self-enforcing — I cannot afford to maintain a web app and a chat bot in parallel, and every authenticated web page is a UX surface, an attack surface, and a maintenance liability I'm taking on for no user benefit.
+
+#### Acceptance Criteria
+
+1. THE public web surface SHALL be limited to: (a) the marketing landing page at `/`, (b) legal pages at `/privacy` and `/terms` (required for Twilio A2P 10DLC review and general compliance), and (c) server-side webhook and API endpoints under `/api/*`. No other authenticated user-facing pages exist.
+2. THE system SHALL NOT operate any login page, dashboard, settings page, account management page, or any other authenticated HTML route. The `(portal)` directory and `/login` route were removed in task 2.8 and SHALL NOT be reintroduced.
+3. WHEN an external flow requires a browser (e.g., Plaid Link's bank-credential entry), THE system SHALL use the third party's hosted page on their own domain (e.g., `link.plaid.com`) and only host a server-side redirect-handler endpoint. No bank credential, MFA, or sensitive input field SHALL be rendered by RealValue.
+4. WHEN a user feature was originally specified as a web-portal page (settings, vault, accounts list, billing, data export, kill switch, couples linking, phone re-link, trusted contact, blocked merchants, affiliate toggle), THE feature SHALL be implemented as a Telegram chat command and inline keyboard. SMS-based equivalents MAY be added once Twilio A2P 10DLC clears (task 2.7); WhatsApp equivalents are post-MVP.
+5. WHEN a user-facing display surface is needed beyond what plain text or inline keyboards can provide (charts, tables, dashboards), THE system SHALL render them server-side as PNG/SVG images and send them as Telegram message attachments via `sendPhoto` or `sendDocument` — not as a hosted web page.
+6. THE Next.js middleware (`src/middleware.ts`) SHALL remain absent. Public Next.js routes need no middleware once the portal is gone; reintroducing middleware to protect a route is a signal that an authenticated page has been created in violation of this requirement.
