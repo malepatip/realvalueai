@@ -32,6 +32,17 @@ Every flow that originally went through a web UI — bank linking, settings, dat
 
 **The web portal scaffolding** (`src/app/(portal)/`, `src/app/login/`, most of `src/middleware.ts`) is scheduled for removal in **task 2.8**.
 
+**Deployment hosts per workload (locked-in, non-negotiable):**
+
+| Workload | Host | Why |
+|---|---|---|
+| Next.js routes (`/`, `/privacy`, `/terms`, `/api/webhooks/*`, `/api/cron/*`, `/api/health/*`, `/api/vault/*`, `/api/og/*`, `/api/banking/*`, `/r/*`) | **Vercel serverless functions** | All sub-10s. Native Vercel cron triggers daily jobs (see `vercel.json`; downgraded to daily on free tier — upgradable to 6-hour cadence on Vercel Pro). |
+| Conductor, Voice, Watcher, Hunter BullMQ workers | **Vercel functions** (dequeue + process per invocation) | BullMQ here is the queue+retry primitive, **not** a long-running-worker requirement. Each invocation pulls one job, processes <10s, returns. Workers triggered by webhook fan-out, cron, or short-lived dispatch endpoints. |
+| Fixer browser worker (`FIXER_BROWSER` queue) | **Railway / Fly.io worker dyno** | Playwright + Stagehand sessions run minutes, not seconds (mandated by `requirements.md` lines 116, 340). Cannot fit Vercel function time/memory limits. Long-lived process holds the per-provider Redis semaphore (10 concurrent sessions max). |
+| Fixer orchestrator (`FIXER` queue) | **Vercel function** | Dispatches to `FIXER_BROWSER`, polls status, handles non-browser fallback chain (API → walkthrough → human delegation). |
+
+Redis (Upstash) and Supabase are shared by both hosts. The Railway/Fly worker only needs to exist when task **3.7** lands; until then there's nothing on `FIXER_BROWSER`.
+
 ---
 
 ## Dependency Index
@@ -62,13 +73,13 @@ Every flow that originally went through a web UI — bank linking, settings, dat
 | 3.7 | 1.1, 1.4, 2.4 | 3 |
 | 3.8 | 2.5, 1.3 | 3 |
 | 3.9 | 2.1, 1.2 | 3 |
-| 3.10 | 2.1, 1.2 | 3 |
+| 3.10 | 2.1, 1.2, 3.6 | 3 |
 | 4.1 | 3.1, 3.6, 3.7 | 4 |
 | 4.2 | 3.6 | 4 |
 | 4.3 | 3.1, 2.3 | 4 |
 | 4.4 | 3.8, 3.6 | 4 |
 | 4.5 | 2.4, 3.1 | 4 |
-| 4.6 | 3.9, 3.10 | 4 |
+| 4.6 | 3.10, 3.6 | 4 |
 | 5.1 | 4.1, 4.4, 3.9 | 5 |
 | 5.2 | 2.4, 3.6 | 5 |
 | 5.3 | 2.4 | 5 |
@@ -77,7 +88,7 @@ Every flow that originally went through a web UI — bank linking, settings, dat
 | 5.6 | 2.4, 2.1, 3.6 | 5 |
 | 5.7 | 1.3, 2.4, 1.2 | 5 |
 | 5.8 | 3.6, 3.8, 2.1 | 5 |
-| 5.9 | 1.1, 1.2, 1.4 | 5 |
+| 5.9 | 1.1, 1.2, 1.4, 3.6 | 5 |
 
 ---
 
@@ -155,7 +166,7 @@ Every flow that originally went through a web UI — bank linking, settings, dat
     - Create `src/lib/agents/queues.ts`:
       - Queue constants: `INBOUND`, `CONDUCTOR`, `WATCHER`, `FIXER`, `HUNTER`, `VOICE`, `FIXER_BROWSER`, `DEAD_LETTER`
       - `enqueueTask(targetAgent, message)` — adds job to agent's BullMQ queue with priority mapping
-      - `createWorker(agentType, processor)` — BullMQ worker factory with retry logic (3 retries, exponential backoff), dead-letter on final failure
+      - `createWorker(agentType, processor)` — BullMQ worker factory with retry logic (3 retries, exponential backoff), dead-letter on final failure. Per the deployment-hosts table above: workers run **inside Vercel function invocations** by default (one job per invocation); only the Fixer browser worker (3.7) runs as a long-running Railway/Fly dyno.
     - Create `src/lib/agents/pubsub.ts`:
       - `publishEvent(channel, event)` — Redis pub/sub for real-time events (kill switch, priority changes, health pings)
       - `subscribeToEvents(channel, handler)` — event listener
@@ -223,6 +234,7 @@ Every flow that originally went through a web UI — bank linking, settings, dat
       - Validate webhook signature using bot token
       - Parse incoming message, extract text, user ID, callback query data
       - Look up user by `telegram_user_id` in `users` table; if not found, create new user at Phase 0
+      - **Issue or refresh a `session_token`** for the resolved user (random UUID, stored in Redis via `createSession()` from `src/lib/auth/session.ts`, 7-day TTL). This is the **Telegram-resolved session** that authorizes server endpoints called from chat handlers (vault, billing, etc.) — bypasses the SMS magic-link path and is what 2.6 / 4.6 / 5.5 / 5.6 / 5.9 expect for auth.
       - Store raw message in Supabase
       - Enqueue message to `INBOUND` BullMQ queue with user context
       - Return 200 immediately (async processing)
@@ -352,10 +364,10 @@ Every flow that originally went through a web UI — bank linking, settings, dat
       - Validate magic link token
       - Create Supabase auth session
       - Return session token
-    - Create `src/app/(portal)/layout.tsx` — authenticated portal layout with session check
-    - Create `src/app/(portal)/login/page.tsx` — magic link request form (phone number input)
-    - Create `src/middleware.ts` — Next.js middleware to protect `/portal/*` routes, redirect unauthenticated to login
-    - **Test:** Magic link generation, token verification, expired token rejection, session creation, middleware redirects unauthenticated users
+    - ~~Create `src/app/(portal)/layout.tsx`~~ — *originally created; deleted in 2.8 (commit `adc85d9`)*
+    - ~~Create `src/app/(portal)/login/page.tsx`~~ — *originally created; deleted in 2.8 (commit `adc85d9`)*
+    - ~~Create `src/middleware.ts` for `/portal/*` protection~~ — *originally created; deleted in 2.8 (commit `adc85d9`)*
+    - **Test:** Magic link generation, token verification, expired token rejection, session creation. (Middleware-redirect test removed alongside the middleware in 2.8.)
     - _Requirements: 3.6, 3.7, 9.8_
 
   - [x] 2.8 Remove web portal scaffolding (Telegram-first cleanup)
@@ -454,7 +466,7 @@ Every flow that originally went through a web UI — bank linking, settings, dat
       - Check trust phase guardrails before routing action intents
       - Handle STOP command — immediate kill switch (bypass queue)
     - Create `src/agents/conductor/worker.ts`:
-      - BullMQ worker consuming from `CONDUCTOR` queue
+      - BullMQ worker consuming from `CONDUCTOR` queue (**Vercel function** — sub-10s classify+route per job)
       - Process inbound messages: classify, route, log event
       - Store every routing decision in `agent_event_logs` (append-only)
     - **Test:** Intent classification maps messages to correct intents, STOP command triggers kill switch immediately, routing respects trust phase, all events logged
@@ -463,7 +475,7 @@ Every flow that originally went through a web UI — bank linking, settings, dat
   - [ ] 3.7 Fixer agent — browser automation worker setup
     - **Depends on:** 1.1, 1.4, 2.4 (Wave 3)
     - Create `src/agents/fixer/browser-worker.ts`:
-      - BullMQ worker consuming from `FIXER_BROWSER` queue
+      - BullMQ worker consuming from `FIXER_BROWSER` queue (**Railway / Fly.io worker dyno** — Playwright sessions run minutes; required by `requirements.md` lines 116, 340)
       - Spin up headless Playwright with Stagehand
       - Configure rotating residential proxy
       - Anti-bot stealth techniques (user agent rotation, viewport randomization, human-like delays)
@@ -495,7 +507,7 @@ Every flow that originally went through a web UI — bank linking, settings, dat
       - Return `SentimentResult` with sentiment, confidence, trigger keywords
       - `shouldAutoShiftToZen(sentiment)` — true for anxious/distressed/grief/crisis
     - Create `src/agents/voice/worker.ts`:
-      - BullMQ worker consuming from `VOICE` queue
+      - BullMQ worker consuming from `VOICE` queue (**Vercel function** — NIM API calls fit within 10s timeout)
       - Load user preferences (personality mode, locale, safe/stealth/simplified mode flags)
       - Format message through personality pipeline, send via ChannelRouter
       - Fallback to templates if NIM API unavailable
@@ -553,7 +565,7 @@ Every flow that originally went through a web UI — bank linking, settings, dat
       - Verify pre-action state (optimistic locking — subscription still active?)
       - Block two destructive actions on same account within 5 minutes
     - Create `src/agents/fixer/worker.ts`:
-      - BullMQ worker consuming from `FIXER` queue
+      - BullMQ worker consuming from `FIXER` queue (**Vercel function** — orchestrator only; dispatches browser jobs to `FIXER_BROWSER` on Railway/Fly when needed)
       - Check trust phase guardrails (Phase 2: $25 limit, approval required; Phase 3: tier-based)
       - Free tier: guided walkthrough only (max 3/month)
       - Premium tier: unlimited browser automation
@@ -629,7 +641,7 @@ Every flow that originally went through a web UI — bank linking, settings, dat
     - _Requirements: 8.3, 14.1_
 
   - [ ] 4.6 Settings and preferences via chat commands
-    - **Depends on:** 3.9, 3.10, 3.6 (Wave 4)
+    - **Depends on:** 3.10, 3.6 (Wave 4)
     - **Rewritten 2026-04-29 (was: web portal settings UI).** Settings are managed entirely via Telegram chat commands and inline keyboards — no settings page.
     - Create `src/agents/conductor/handlers/settings.ts` for chat command handlers:
       - `/personality` — opens inline keyboard with `savage` / `hype` / `zen` / `mentor` options
@@ -711,7 +723,7 @@ Every flow that originally went through a web UI — bank linking, settings, dat
       - `activateSafeMode(userId, codeWord)` — set flag, store code word and cover topic
       - `detectCodeWord(message, userId)` — check if message contains user's code word
       - When active: all financial messages disguised as cover topic
-      - Portal quick-exit button clears back-navigation
+      - Quick-exit (`/quick_exit` chat command — see task 4.6) calls Telegram `deleteMessage` on the last N messages to wipe visible chat history
     - Create `src/lib/modes/stealth-mode.ts`:
       - When active: Voice removes specific amounts and account details from all messages
     - Create `src/lib/modes/survival-mode.ts`:
@@ -771,7 +783,7 @@ Every flow that originally went through a web UI — bank linking, settings, dat
     - Create `src/agents/hunter/alternatives.ts` — cheaper alternatives with side-by-side comparison
     - Create `src/agents/hunter/affiliates.ts`:
       - Respect user's affiliate preference, disclose relationship, show full math, rank by user savings not commission
-    - Create `src/agents/hunter/worker.ts` — BullMQ worker, survival mode prioritizes emergency resources
+    - Create `src/agents/hunter/worker.ts` — BullMQ worker (**Vercel function** — API queries fit within 10s); survival mode prioritizes emergency resources
     - **Test:** Benefits search returns relevant programs, immigration filter works, religious filter works, rate threshold enforced, affiliate disclosure included, ranking by user savings
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 13.4, 13.5_
 
