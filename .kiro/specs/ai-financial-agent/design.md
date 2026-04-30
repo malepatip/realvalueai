@@ -2,9 +2,11 @@
 
 ## Overview
 
-RealValue is a chat-first multi-agent financial assistant that lives inside Telegram, WhatsApp, and SMS. Five specialized agents (Conductor, Watcher, Fixer, Hunter, Voice) collaborate behind a single conversational personality to cancel subscriptions, predict overdrafts, find government benefits, negotiate bills, and fight for every dollar users leave on the table.
+RealValue is a chat-first multi-agent financial assistant. **Telegram is the primary channel.** SMS via Twilio is the alternative channel (currently `[TBD on use]` pending Twilio A2P 10DLC carrier approval). WhatsApp is post-MVP. Five specialized agents (Conductor, Watcher, Fixer, Hunter, Voice) collaborate behind a single conversational personality to cancel subscriptions, predict overdrafts, find government benefits, negotiate bills, and fight for every dollar users leave on the table.
 
-The system is built on Next.js (Vercel) + Supabase (PostgreSQL) + Redis/BullMQ, with browser automation running on dedicated Railway/Fly.io containers. Users interact exclusively through messaging platforms, with a minimal web portal only for bank linking, credential management, and settings.
+The system is built on Next.js (Vercel) + Supabase (PostgreSQL) + Redis/BullMQ, with **only the Fixer browser worker** running on a dedicated Railway/Fly.io container (Playwright sessions take minutes — required by Requirement 5.1). All other agents run as Vercel serverless functions (sub-10s per job).
+
+**Users interact exclusively through chat — there is no authenticated web portal.** All flows that originally went through a web UI (bank linking, settings, credential vault, billing, data export, kill switch, couples linking) are Telegram chat commands and inline keyboards. The public web surface is limited to a marketing landing (`/`), legal pages (`/privacy`, `/terms`), and server-side webhook/API endpoints. The `(portal)` directory and `/login` page were deleted in task 2.8 (commit `adc85d9`); see Requirement 22 for the forcing function preventing reintroduction.
 
 The MVP (V1) is the Subscription Assassin: connect bank → Watcher finds unused subs → user says "cancel it" → Fixer cancels → shareable card.
 
@@ -14,11 +16,12 @@ The MVP (V1) is the Subscription Assassin: connect bank → Watcher finds unused
 |----------|--------|-----------|
 | Agent communication | Redis pub/sub + BullMQ job queues | Decoupled agents, reliable delivery, retry logic, dead-letter queues |
 | Messaging abstraction | Channel adapter pattern | Unified interface across Telegram/WhatsApp/SMS with platform-specific rendering |
-| Browser automation | Playwright + Stagehand on Railway/Fly.io | Long-running containers (not serverless), anti-bot stealth, CAPTCHA solving |
+| Browser automation | Playwright + Stagehand on Railway/Fly.io | Long-running containers (not serverless), anti-bot stealth, CAPTCHA solving — **Fixer-only**: all other agents run as Vercel serverless functions |
 | Financial math | PostgreSQL NUMERIC + Decimal.js | Never IEEE 754 — exact arithmetic for all money operations |
 | State machine | Trust Ladder in Supabase + Redis cache | Phase transitions with guardrail enforcement, kill switch |
 | Credential security | AES-256 + PIN-derived key + ephemeral containers | Zero-knowledge vault — system can't decrypt without user PIN |
-| Job scheduling | Vercel cron → Redis/BullMQ → workers | Cron triggers sync, BullMQ manages agent task execution with retries |
+| Job scheduling | Vercel cron → BullMQ queues → Vercel functions consume per-invocation | BullMQ is queue+retry primitive (not long-running-worker requirement). Fixer queue consumed by Railway/Fly worker; all others by Vercel functions. Vercel free-tier cron is daily; upgradable to 6h on Pro. |
+| User interface | Telegram bot only (MVP). No web portal. | Eliminates portal maintenance, session management, and a hostile UX surface. SMS post-A2P; WhatsApp post-MVP. |
 
 ## Architecture
 
@@ -27,73 +30,82 @@ The MVP (V1) is the Subscription Assassin: connect bank → Watcher finds unused
 ```mermaid
 graph TB
     subgraph "Messaging Channels"
-        TG[Telegram Bot API]
-        WA[WhatsApp Business API]
-        SMS[Twilio SMS]
+        TG[Telegram Bot API<br>PRIMARY]
+        SMS[Twilio SMS<br>TBD on A2P 10DLC]
+        WA[WhatsApp Business API<br>POST-MVP]
     end
 
-    subgraph "Vercel - Next.js"
+    subgraph "Vercel - Next.js (serverless)"
+        LANDING[Marketing Landing<br>/, /privacy, /terms]
         WH[Webhook Handlers<br>/api/webhooks/*]
-        CRON[Cron Jobs<br>/api/cron/*]
-        PORTAL[Web Portal<br>/app/*]
+        CRON[Cron Jobs<br>/api/cron/* — daily on free tier]
         OG[OG Image Generator<br>/api/og/*]
-        API[API Routes<br>/api/*]
+        API[API Routes<br>/api/banking/*, /api/vault/*, /api/health/*]
     end
 
-    subgraph "Agent Layer"
+    subgraph "Agent Layer (Vercel functions)"
         CONDUCTOR[Conductor Agent]
         WATCHER[Watcher Agent]
-        FIXER[Fixer Agent]
         HUNTER[Hunter Agent]
         VOICE[Voice Agent]
+        FIXER_ORCH[Fixer Orchestrator]
     end
 
-    subgraph "Infrastructure"
-        REDIS[(Redis + BullMQ)]
+    subgraph "Infrastructure (shared)"
+        REDIS[(Upstash Redis + BullMQ)]
         SUPABASE[(Supabase PostgreSQL)]
         NIM[NVIDIA NIM API<br>Llama 3.3 70B]
     end
 
     subgraph "External Services"
-        PLAID[Plaid API]
+        PLAID_API[Plaid API]
+        PLAID_LINK[link.plaid.com<br>Plaid-hosted bank picker<br>browser-required]
         SIMPLEFIN[SimpleFIN API]
         BROWSERBASE[Browserbase<br>CAPTCHA Solving]
     end
 
-    subgraph "Railway/Fly.io"
-        FIXER_WORKER[Fixer Worker Containers<br>Playwright + Stagehand]
+    subgraph "Railway/Fly.io (Fixer-only — long-running Playwright)"
+        FIXER_WORKER[Fixer Browser Worker<br>Playwright + Stagehand]
     end
 
     TG --> WH
-    WA --> WH
     SMS --> WH
+    WA --> WH
+
+    TG -.->|deep link from chat| PLAID_LINK
+    PLAID_LINK -->|redirect with public_token| API
 
     WH --> REDIS
     CRON --> REDIS
-    PORTAL --> API
     API --> SUPABASE
 
     REDIS --> CONDUCTOR
     CONDUCTOR --> WATCHER
-    CONDUCTOR --> FIXER
+    CONDUCTOR --> FIXER_ORCH
     CONDUCTOR --> HUNTER
     CONDUCTOR --> VOICE
 
     WATCHER --> SUPABASE
-    WATCHER --> PLAID
+    WATCHER --> PLAID_API
     WATCHER --> SIMPLEFIN
     HUNTER --> SUPABASE
     VOICE --> NIM
     VOICE --> TG
-    VOICE --> WA
-    VOICE --> SMS
+    VOICE -.->|post-A2P| SMS
+    VOICE -.->|post-MVP| WA
 
-    FIXER --> REDIS
+    FIXER_ORCH --> REDIS
     REDIS --> FIXER_WORKER
     FIXER_WORKER --> BROWSERBASE
 
     OG --> SUPABASE
 ```
+
+*Diagram notes:*
+- *Solid arrows are MVP-active. Dotted arrows are post-A2P (SMS) or post-MVP (WhatsApp).*
+- *`PLAID_LINK` is Plaid's hosted page on `link.plaid.com` — not a page we host. The user taps a deep link in Telegram, completes Plaid's flow on Plaid's domain, and Plaid redirects back to our server-side `/api/banking/plaid-callback` endpoint with the `public_token`.*
+- *BullMQ is used as a queue+retry primitive. Conductor / Watcher / Hunter / Voice / Fixer Orchestrator workers run as Vercel function invocations (one job per invocation, sub-10s). Only `FIXER_WORKER` is a long-running dyno, holding per-provider Redis semaphores.*
+- *No portal node. The marketing landing is non-load-bearing — it has no edges into the agent layer because users transition to chat to interact.*
 
 ### Request Flow — Message Lifecycle
 
@@ -410,28 +422,36 @@ const PHASE_GUARDRAILS = {
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant WP as Web Portal
-    participant API as API Route
+    participant TG as Telegram Bot
+    participant API as API Route (Vercel)
     participant DB as Supabase
     participant R as Redis/BullMQ
-    participant FW as Fixer Worker
+    participant FW as Fixer Worker (Railway/Fly)
 
     Note over U,FW: Storing Credentials
-    U->>WP: Add credential + PIN
-    WP->>API: POST /api/vault/store
+    U->>TG: /vault add (service name, credential)
+    TG->>U: force_reply prompt for PIN
+    U->>TG: PIN reply
+    TG->>TG: deleteMessage on PIN reply (immediate)
+    TG->>API: POST /api/vault/store (Telegram session token)
     API->>API: PBKDF2(PIN, salt, 100k iterations) → key
     API->>API: AES-256-GCM encrypt
     API->>DB: Store encrypted blob + salt + IV
-    API->>U: Stored ✓
+    API->>TG: Stored ✓
+    TG->>U: "Saved {service}. PIN never stored."
 
-    Note over U,FW: Using Credentials
-    U->>WP: Approve action + PIN
-    WP->>API: POST /api/actions/approve
-    API->>R: Enqueue browser job
+    Note over U,FW: Using Credentials (during Fixer browser job)
+    U->>TG: Approve action (inline keyboard button)
+    TG->>TG: force_reply for PIN
+    U->>TG: PIN reply
+    TG->>TG: deleteMessage on PIN reply
+    TG->>API: POST /api/actions/approve (PIN, action_id)
+    API->>R: Enqueue browser job (PIN passed via short-lived token)
     R->>FW: Worker picks up job
     FW->>DB: Fetch encrypted blob
     FW->>FW: PBKDF2 → decrypt → use → zero memory
     FW->>R: Result + screenshots
+    FW->>TG: Progress updates via Voice
     Note over FW: Container destroyed
 ```
 
@@ -446,11 +466,13 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    subgraph "Vercel"
-        API[API Route] --> Q[Redis/BullMQ]
+    subgraph "Vercel functions"
+        API[Fixer Orchestrator<br>API route]
+        Q[Redis/BullMQ<br>FIXER_BROWSER queue]
+        API --> Q
     end
 
-    subgraph "Railway/Fly.io Workers"
+    subgraph "Railway/Fly.io (Fixer browser workers — only long-running tier)"
         W1[Worker 1<br>Playwright + Stagehand]
         W2[Worker 2]
         W3[Worker N]
@@ -464,6 +486,8 @@ graph LR
     W1 --> RP[Rotating Proxies]
     W1 --> SS[Screenshot Storage]
 ```
+
+*Only the browser-automation tier requires a long-running host. **Conductor / Watcher / Voice / Hunter / Fixer-orchestrator** all run as Vercel function invocations consuming their respective BullMQ queues per-invocation (each job <10s).*
 
 **Worker Lifecycle**:
 1. Worker polls `fixer-browser-jobs` queue
@@ -558,48 +582,55 @@ interface ShareableCard {
 ### 14. API Routes
 
 ```
-# Webhooks
-POST /api/webhooks/telegram
-POST /api/webhooks/whatsapp
-POST /api/webhooks/twilio
+# Marketing & legal (public, no auth — see Requirement 22)
+GET  /                                # Marketing landing (currently a stub)
+GET  /privacy                         # Privacy policy (required for A2P 10DLC)
+GET  /terms                           # Terms & SMS conditions (required for A2P 10DLC)
+
+# Webhooks (server-side handlers, no auth — signature-verified)
+POST /api/webhooks/telegram           # PRIMARY chat ingress
+POST /api/webhooks/whatsapp           # post-MVP
+POST /api/webhooks/twilio             # post-A2P
 POST /api/webhooks/plaid
 POST /api/webhooks/simplefin
+POST /api/webhooks/telegram-payment   # Telegram Payments API: pre_checkout_query, successful_payment
 
-# Cron (Vercel cron)
+# Cron (Vercel cron — daily on free tier, upgradable to 6h on Pro)
 GET  /api/cron/bank-sync
 GET  /api/cron/morning-briefing
 GET  /api/cron/overdraft-check
 GET  /api/cron/agent-health
 GET  /api/cron/survival-mode-check
 
-# Auth
-POST /api/auth/magic-link
-POST /api/auth/verify
+# Auth (SMS magic-link — [TBD on use], gated on Twilio A2P 10DLC)
+POST /api/auth/magic-link             # [TBD on use] until A2P clears
+POST /api/auth/verify                 # [TBD on use] until A2P clears
+# Telegram-resolved sessions are issued at webhook time in 2.1 — no separate endpoint
 
-# Bank Linking
-GET  /api/portal/accounts
-POST /api/portal/link-bank
-DELETE /api/portal/unlink-bank/:id
+# Bank Linking (called from Telegram chat handlers; no portal pages)
+POST /api/banking/plaid-callback      # exchange Plaid public_token from link.plaid.com redirect
+GET  /api/banking/accounts            # list (Telegram /accounts handler)
+DELETE /api/banking/unlink/:id        # Telegram inline-button unlink
 
-# Credential Vault
+# Credential Vault (called from Telegram /vault chat handlers — auth: Telegram-resolved session)
 POST /api/vault/store
 GET  /api/vault/list
 PUT  /api/vault/update/:id
 DELETE /api/vault/delete/:id
 
-# Actions
+# Actions (called from Telegram inline-button callbacks)
 POST /api/actions/approve
 POST /api/actions/reject
 POST /api/actions/snooze
 POST /api/actions/cancel-pending
 
-# Trust Ladder
+# Trust Ladder (called from Telegram chat command handlers)
 GET  /api/trust/status
 POST /api/trust/advance
 POST /api/trust/downgrade
 POST /api/trust/kill-switch
 
-# Settings
+# Settings (called from Telegram chat command handlers — no settings page)
 GET  /api/settings
 PUT  /api/settings
 PUT  /api/settings/personality
@@ -608,18 +639,21 @@ PUT  /api/settings/blocked-merchants
 PUT  /api/settings/phone-number
 
 # Shareable Cards
-GET  /api/og/card/[cardId]
-GET  /r/[code]
+GET  /api/og/card/[cardId]            # OG image render via @vercel/og
+GET  /r/[code]                        # short URL → signup with referral attribution
 
-# Couples Mode
+# Couples Mode (called from Telegram /link_partner / /accept_partner)
 POST /api/couples/link
 POST /api/couples/accept
 DELETE /api/couples/unlink
 
-# Export & Health
-GET  /api/export/data
-GET  /api/health
-GET  /api/health/agents
+# Health & Export
+GET  /api/health                      # Supabase + Redis ping
+GET  /api/health/integration          # Supabase write/read + Redis set/get
+GET  /api/health/banking              # Plaid sandbox + SimpleFIN demo round-trip
+GET  /api/health/auth                 # Twilio creds + From number; ?phone= sends real SMS
+GET  /api/health/agents               # per-agent metrics
+# Data export delivered as Telegram document attachment via /export_data chat command — no /api/export/data web download
 ```
 
 
@@ -630,11 +664,14 @@ All monetary values use PostgreSQL `NUMERIC(19,4)` — never IEEE 754 floating p
 ### Core Tables
 
 ```sql
--- Users: canonical identity is phone number
+-- Users: identified by telegram_user_id (canonical, set at webhook time in 2.1)
+-- or phone_number (SMS auth, [TBD on use] until A2P clears).
+-- phone_number is UNIQUE NULLABLE — Telegram-only users may have NULL phone
+-- until they opt into SMS post-A2P. Reframed 2026-04-29 in the Telegram-first pivot.
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  phone_number VARCHAR(20) UNIQUE NOT NULL,
-  telegram_user_id VARCHAR(64),
+  phone_number VARCHAR(20) UNIQUE,             -- nullable; populated when SMS auth opts in
+  telegram_user_id VARCHAR(64) UNIQUE,         -- canonical identity at webhook time
   whatsapp_number VARCHAR(20),
   display_name VARCHAR(100),
   trust_phase VARCHAR(10) NOT NULL DEFAULT 'phase_0'
@@ -986,6 +1023,8 @@ CREATE INDEX idx_agent_events_time ON agent_event_logs(created_at DESC);
 ```
 
 ### Row-Level Security (RLS)
+
+> **Note (2026-04-29 pivot):** RLS via `auth.uid()` applies only to Supabase-Auth-issued sessions (the SMS magic-link path, currently `[TBD on use]`). Telegram webhook handlers run server-side with the Supabase **service-role key** and resolve `user_id` from `telegram_user_id` themselves. Per-user authorization for those handlers is enforced **in handler code** before any query — never rely on `auth.uid()` for Telegram-originated requests.
 
 ```sql
 -- Enable RLS on all user-data tables
