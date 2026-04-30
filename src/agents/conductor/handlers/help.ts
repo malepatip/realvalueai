@@ -13,13 +13,18 @@
 import type { ConductorReply } from "../types";
 
 export function handleHelp(): ConductorReply {
+  // GOTCHA: TelegramAdapter sends with parse_mode=Markdown. A bare
+  // command name containing `_` (like /link_simplefin) gets parsed as
+  // an italic-toggle and Telegram returns 400 invalid markdown — the
+  // bot then silently fails to reply. Always wrap command names in
+  // backticks (code spans) so underscores are treated as literal.
   const text =
     "Here's what I can do today:\n\n" +
-    "• /start — meet your crew\n" +
-    "• /help — show this list\n" +
-    "• /link_simplefin <access-url> — connect a bank via SimpleFIN " +
+    "• `/start` — meet your crew\n" +
+    "• `/help` — show this list\n" +
+    "• `/link_simplefin <access-url>` — connect a bank via SimpleFIN " +
     "(get the URL from bridge.simplefin.org/simplefin/create)\n" +
-    "• /accounts — list your connected bank accounts\n\n" +
+    "• `/accounts` — list your connected bank accounts\n\n" +
     "More coming soon: Plaid bank linking, settings, subscription " +
     "cancellation, overdraft predictions, government benefits search. " +
     "Anything you message me right now is logged so we can build the " +

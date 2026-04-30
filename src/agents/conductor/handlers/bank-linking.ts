@@ -161,7 +161,7 @@ export async function handleLinkSimpleFin(
       `✅ SimpleFIN connected — ${accountCount} account${accountCount === 1 ? "" : "s"} ` +
       "found. I'll start monitoring transactions and surface insights as I learn " +
       `your patterns.${phaseNote}\n\n` +
-      "Send /accounts to see what's connected.",
+      "Send `/accounts` to see what's connected.",
   };
 }
 
@@ -194,7 +194,7 @@ export async function handleAccounts(
     return {
       text:
         "You haven't connected a bank yet.\n\n" +
-        "Use /link_simplefin to connect via SimpleFIN (free, read-only). " +
+        "Use `/link_simplefin` to connect via SimpleFIN (free, read-only). " +
         "Plaid linking is coming soon.",
     };
   }
