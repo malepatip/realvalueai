@@ -20,7 +20,10 @@ import {
   revokeAccessToken,
   type PlaidConfig,
 } from "@/lib/banking/plaid";
-import { fetchAccounts as simpleFinFetchAccounts } from "@/lib/banking/simplefin";
+import {
+  fetchAccounts as simpleFinFetchAccounts,
+  fetchTransactions as simpleFinFetchTransactions,
+} from "@/lib/banking/simplefin";
 import { getEnv } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -108,6 +111,81 @@ async function checkSimpleFin(accessUrl: string): Promise<CheckResult> {
   }
 }
 
+type SimpleFinTxnSummary = CheckResult & {
+  count?: number;
+  dateRange?: { earliest: string; latest: string } | null;
+  topMerchants?: ReadonlyArray<{ name: string; count: number }>;
+  uniqueAccounts?: number;
+  pendingCount?: number;
+};
+
+/**
+ * Pulls the last 90 days of SimpleFIN transactions and returns aggregate
+ * stats only — no amounts, no account IDs, no transaction IDs in the
+ * response body. Surfaces what an agent (Watcher categorizer / recurring
+ * detector) would have to work with on the demo dataset.
+ */
+async function summarizeSimpleFinTransactions(
+  accessUrl: string,
+): Promise<SimpleFinTxnSummary> {
+  try {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 90);
+    const toIso = (d: Date): string => d.toISOString().split("T")[0] ?? "";
+
+    const txns = await simpleFinFetchTransactions(
+      { accessUrl },
+      toIso(startDate),
+      toIso(endDate),
+    );
+
+    if (txns.length === 0) {
+      return {
+        status: "ok",
+        detail: "0 txns in last 90 days",
+        count: 0,
+        dateRange: null,
+        topMerchants: [],
+        uniqueAccounts: 0,
+        pendingCount: 0,
+      };
+    }
+
+    const merchantCounts = new Map<string, number>();
+    const accountIds = new Set<string>();
+    let earliest = txns[0]!.transactionDate;
+    let latest = txns[0]!.transactionDate;
+    let pending = 0;
+
+    for (const tx of txns) {
+      const merchant = tx.merchantName ?? tx.description ?? "(unnamed)";
+      merchantCounts.set(merchant, (merchantCounts.get(merchant) ?? 0) + 1);
+      accountIds.add(tx.accountId);
+      if (tx.transactionDate < earliest) earliest = tx.transactionDate;
+      if (tx.transactionDate > latest) latest = tx.transactionDate;
+      if (tx.pending) pending++;
+    }
+
+    const topMerchants = [...merchantCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+
+    return {
+      status: "ok",
+      detail: `${txns.length} txns across ${accountIds.size} accounts (${earliest} → ${latest})`,
+      count: txns.length,
+      dateRange: { earliest, latest },
+      topMerchants,
+      uniqueAccounts: accountIds.size,
+      pendingCount: pending,
+    };
+  } catch (e) {
+    return { status: "error", error: e instanceof Error ? e.message : "unknown" };
+  }
+}
+
 export async function GET(): Promise<NextResponse> {
   const env = getEnv();
 
@@ -117,9 +195,10 @@ export async function GET(): Promise<NextResponse> {
     environment: env.PLAID_ENV,
   };
 
-  const [plaid, simplefin] = await Promise.all([
+  const [plaid, simplefin, simplefinTxns] = await Promise.all([
     checkPlaid(plaidConfig),
     checkSimpleFin(env.SIMPLEFIN_ACCESS_URL),
+    summarizeSimpleFinTransactions(env.SIMPLEFIN_ACCESS_URL),
   ]);
 
   const results = {
@@ -127,6 +206,7 @@ export async function GET(): Promise<NextResponse> {
     plaid_link_token: plaid.link_token,
     plaid_full_flow: plaid.full_flow,
     simplefin_accounts: simplefin,
+    simplefin_transactions: simplefinTxns,
   };
 
   const allOk = Object.values(results).every((r) => r.status === "ok");
