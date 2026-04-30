@@ -11,7 +11,11 @@ const MagicLinkRequestSchema = z.object({
     .regex(/^\+[1-9]\d{1,14}$/, "Phone number must be in E.164 format (e.g., +14155551234)"),
 });
 
-const MAGIC_LINK_BASE_URL = "https://app.realvalue.ai/api/auth/verify";
+// Magic-link verification endpoint URL. Defaults to the live Vercel
+// deployment but reads NEXT_PUBLIC_APP_URL when set (e.g., custom
+// domain or preview environments). The legacy `app.realvalue.ai`
+// host is portal-era and no longer in use.
+const MAGIC_LINK_BASE_URL = `${process.env["NEXT_PUBLIC_APP_URL"] ?? "https://realvalueai.vercel.app"}/api/auth/verify`;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
