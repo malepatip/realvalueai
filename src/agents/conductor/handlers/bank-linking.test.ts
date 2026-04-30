@@ -82,6 +82,10 @@ const DEPS: ConductorDeps = {
   supabaseServiceRoleKey: "stub-key",
   redisUrl: "redis://stub:6379",
   encryptionKey: "0".repeat(64),
+  plaidClientId: "stub-plaid-client",
+  plaidSecret: "stub-plaid-secret",
+  plaidEnv: "sandbox",
+  appUrl: "https://stub.example.com",
 };
 
 function cmdIntent(name: string, args: string[] = []): Intent {

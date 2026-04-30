@@ -22,12 +22,14 @@ export function handleHelp(): ConductorReply {
     "Here's what I can do today:\n\n" +
     "• `/start` — meet your crew\n" +
     "• `/help` — show this list\n" +
-    "• `/link_simplefin <access-url>` — connect a bank via SimpleFIN " +
-    "(get the URL from bridge.simplefin.org/simplefin/create)\n" +
+    "• `/link_bank` — connect a bank via Plaid (recommended — fast, " +
+    "secure, all major US banks)\n" +
     "• `/accounts` — list your connected bank accounts\n\n" +
-    "More coming soon: Plaid bank linking, settings, subscription " +
-    "cancellation, overdraft predictions, government benefits search. " +
+    "More coming soon: settings, subscription cancellation, " +
+    "overdraft predictions, government benefits search. " +
     "Anything you message me right now is logged so we can build the " +
-    "things you actually want.";
+    "things you actually want.\n\n" +
+    "_(Power-user fallback for banks Plaid doesn't support: " +
+    "`/link_simplefin <access-url>`)_";
   return { text };
 }

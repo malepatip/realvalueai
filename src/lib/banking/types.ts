@@ -65,6 +65,45 @@ export const PlaidLinkTokenResponseSchema = z.object({
   request_id: z.string().optional(),
 });
 
+/**
+ * Plaid Hosted Link token-create response. Adds `hosted_link_url`
+ * (the URL we DM to the user) to the standard link-token response.
+ */
+export const PlaidHostedLinkTokenResponseSchema = z.object({
+  link_token: z.string().min(1),
+  hosted_link_url: z.string().url(),
+  expiration: z.string().optional(),
+  request_id: z.string().optional(),
+});
+
+/**
+ * Subset of Plaid's `/link/token/get` response we need after a Hosted
+ * Link session completes. The `link_sessions` array contains one entry
+ * per attempt; the most recent successful one carries the public_token
+ * inside `results.item_add_results`.
+ */
+export const PlaidLinkTokenGetResponseSchema = z.object({
+  link_token: z.string().min(1),
+  link_sessions: z.array(
+    z.object({
+      link_session_id: z.string(),
+      finished_at: z.string().nullable().optional(),
+      results: z.object({
+        item_add_results: z.array(
+          z.object({
+            public_token: z.string().min(1).nullable().optional(),
+            institution: z.object({
+              name: z.string().nullable().optional(),
+              institution_id: z.string().nullable().optional(),
+            }).nullable().optional(),
+          }),
+        ).optional(),
+      }).nullable().optional(),
+    }),
+  ).optional(),
+  request_id: z.string().optional(),
+});
+
 export const PlaidExchangeTokenResponseSchema = z.object({
   access_token: z.string().min(1),
   item_id: z.string().min(1),

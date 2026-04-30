@@ -14,6 +14,8 @@ import { Money } from "@/lib/math/decimal";
 import type { NormalizedTransaction, NormalizedAccount } from "./types";
 import {
   PlaidLinkTokenResponseSchema,
+  PlaidHostedLinkTokenResponseSchema,
+  PlaidLinkTokenGetResponseSchema,
   PlaidExchangeTokenResponseSchema,
   PlaidSyncResponseSchema,
   PlaidAccountsResponseSchema,
@@ -85,6 +87,93 @@ export async function createLinkToken(
 
   const parsed = PlaidLinkTokenResponseSchema.parse(raw);
   return parsed.link_token;
+}
+
+/**
+ * Create a Hosted Link token. Plaid hosts the entire bank-linking flow
+ * on `link.plaid.com`; we only host the `completion_redirect_uri`
+ * server endpoint that fires once the user finishes.
+ *
+ * Used by the `/link_bank` Telegram chat handler — bot DMs the
+ * `hosted_link_url` to the user, the user taps it, completes the flow
+ * on Plaid's domain, and Plaid redirects to our callback.
+ *
+ * @param config - Plaid API credentials
+ * @param userId - Internal user ID (used as Plaid client_user_id)
+ * @param completionRedirectUri - Server endpoint Plaid redirects to on
+ *   success (must be allow-listed in the Plaid dashboard for OAuth
+ *   banks like Chase, BofA, Wells Fargo to work)
+ * @returns Object with link_token (use later with /link/token/get) and
+ *   hosted_link_url (DM this to the user)
+ */
+export async function createHostedLinkToken(
+  config: PlaidConfig,
+  userId: string,
+  completionRedirectUri: string,
+): Promise<{ linkToken: string; hostedLinkUrl: string }> {
+  const raw = await plaidRequest(config, "/link/token/create", {
+    user: { client_user_id: userId },
+    client_name: "RealValue AI",
+    products: ["transactions"],
+    country_codes: ["US"],
+    language: "en",
+    redirect_uri: completionRedirectUri,
+    hosted_link: {
+      completion_redirect_uri: completionRedirectUri,
+      is_mobile_app: false,
+    },
+  });
+
+  const parsed = PlaidHostedLinkTokenResponseSchema.parse(raw);
+  return {
+    linkToken: parsed.link_token,
+    hostedLinkUrl: parsed.hosted_link_url,
+  };
+}
+
+/**
+ * Retrieve the public_token from a completed Hosted Link session.
+ *
+ * Called by `/api/banking/plaid-callback` after Plaid redirects the
+ * user back. Polls `/link/token/get` for the most recent successful
+ * link_session and returns the public_token + institution metadata.
+ *
+ * @param config - Plaid API credentials
+ * @param linkToken - The link_token returned by createHostedLinkToken
+ * @returns public_token + institution name/id, or null if no successful
+ *   session has finished yet (caller should retry or surface error)
+ */
+export async function getHostedLinkResult(
+  config: PlaidConfig,
+  linkToken: string,
+): Promise<{
+  publicToken: string;
+  institutionName: string | null;
+  institutionId: string | null;
+} | null> {
+  const raw = await plaidRequest(config, "/link/token/get", {
+    link_token: linkToken,
+  });
+
+  const parsed = PlaidLinkTokenGetResponseSchema.parse(raw);
+
+  // Find the most recent finished session that has a public_token
+  const finished = (parsed.link_sessions ?? [])
+    .filter((s) => s.finished_at)
+    .reverse(); // most-recent-first
+
+  for (const session of finished) {
+    const result = session.results?.item_add_results?.[0];
+    if (result?.public_token) {
+      return {
+        publicToken: result.public_token,
+        institutionName: result.institution?.name ?? null,
+        institutionId: result.institution?.institution_id ?? null,
+      };
+    }
+  }
+
+  return null;
 }
 
 /**

@@ -25,6 +25,7 @@ import {
   handlePendingCallback,
 } from "./handlers/fallback";
 import { handleLinkSimpleFin, handleAccounts } from "./handlers/bank-linking";
+import { handleLinkBank } from "./handlers/plaid-link";
 
 /**
  * Map of slash-command name → handler. Names are case-insensitive
@@ -33,6 +34,7 @@ import { handleLinkSimpleFin, handleAccounts } from "./handlers/bank-linking";
 const COMMAND_HANDLERS: Readonly<Record<string, Handler>> = {
   start: handleStart,
   help: handleHelp,
+  link_bank: handleLinkBank,
   link_simplefin: handleLinkSimpleFin,
   accounts: handleAccounts,
 };

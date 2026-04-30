@@ -84,6 +84,11 @@ export interface ConductorDeps {
   readonly supabaseServiceRoleKey: string;
   readonly redisUrl: string;
   readonly encryptionKey: string;
+  readonly plaidClientId: string;
+  readonly plaidSecret: string;
+  readonly plaidEnv: "sandbox" | "production";
+  /** Base URL for redirect callbacks (e.g., `https://realvalueai.vercel.app`). */
+  readonly appUrl: string;
 }
 
 /**

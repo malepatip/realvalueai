@@ -229,6 +229,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
         redisUrl: env.REDIS_URL,
         encryptionKey: env.ENCRYPTION_KEY,
+        plaidClientId: env.PLAID_CLIENT_ID,
+        plaidSecret: env.PLAID_SECRET,
+        plaidEnv: env.PLAID_ENV,
+        appUrl: process.env["NEXT_PUBLIC_APP_URL"] ?? "https://realvalueai.vercel.app",
       };
       const reply = await processInboundMessage(conductorCtx, conductorDeps);
       const tg = new TelegramAdapter(env.TELEGRAM_BOT_TOKEN);
