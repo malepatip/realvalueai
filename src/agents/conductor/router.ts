@@ -26,6 +26,7 @@ import {
 } from "./handlers/fallback";
 import { handleLinkSimpleFin, handleAccounts } from "./handlers/bank-linking";
 import { handleLinkBank } from "./handlers/plaid-link";
+import { handleSync } from "./handlers/sync";
 
 /**
  * Map of slash-command name → handler. Names are case-insensitive
@@ -37,6 +38,7 @@ const COMMAND_HANDLERS: Readonly<Record<string, Handler>> = {
   link_bank: handleLinkBank,
   link_simplefin: handleLinkSimpleFin,
   accounts: handleAccounts,
+  sync: handleSync,
 };
 
 export async function route(
