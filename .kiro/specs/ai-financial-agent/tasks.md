@@ -358,15 +358,17 @@ Every flow that originally went through a web UI — bank linking, settings, dat
     - **Test:** Magic link generation, token verification, expired token rejection, session creation, middleware redirects unauthenticated users
     - _Requirements: 3.6, 3.7, 9.8_
 
-  - [ ] 2.8 Remove web portal scaffolding (Telegram-first cleanup)
+  - [x] 2.8 Remove web portal scaffolding (Telegram-first cleanup)
     - **Depends on:** 1.1 (Wave 2)
-    - **Added 2026-04-29 as part of the Telegram-first pivot.** The web portal directory and login page are obsolete — Telegram is the primary UI. SMS magic-link auth (2.7) stays `[TBD on use]` for future non-Telegram users.
-    - Delete `src/app/(portal)/` directory (login, dashboard, portal-only layout)
-    - Delete `src/app/login/page.tsx`
-    - Simplify `src/middleware.ts` — drop the session-token redirect to `/login` and the portal-protection allowlist; verify `/privacy` and `/terms` remain reachable (still required public for Twilio A2P legal review). The middleware can probably be removed entirely once all redirects are gone — Next.js public routes don't need it.
-    - Update vault routes (`src/app/api/vault/*/route.ts`) to use a **Telegram-resolved session** check instead of magic-link session: cookie/header carries an opaque `session_token` that the 2.1 webhook issues for a recognized `telegram_user_id` (stored in Redis with a TTL). Keep magic-link verification path coexisting but unused until 2.7 unblocks.
-    - Add a server-side handler for the Plaid Link redirect (`src/app/api/banking/plaid-callback/route.ts`) — exchanges `public_token`, stores in `bank_connections`, posts confirmation back to Telegram via `TelegramAdapter`. Returns a tiny "you can close this tab" HTML response. **Not a page** — a one-shot endpoint.
-    - **Test:** Type-check passes, `/privacy` and `/terms` still 200, vault routes still authenticate (with Telegram session), `/api/health/banking` and `/api/health/auth` no regression, no orphaned imports, `(portal)/` directory gone.
+    - **Added 2026-04-29 as part of the Telegram-first pivot.** The web portal directory, login page, and middleware are obsolete — Telegram is the primary UI. SMS magic-link auth (2.7) stays `[TBD on use]` for future non-Telegram users.
+    - **Done in this commit:**
+      - Deleted `src/app/(portal)/` directory (dashboard + portal-only layout)
+      - Deleted `src/app/login/page.tsx`
+      - Deleted `src/middleware.ts` and `src/middleware.test.ts` entirely (Next.js handles public routes by default; nothing remained worth protecting after the portal was removed)
+      - Verified `/privacy` and `/terms` still 200, `/api/health/*` unaffected, `npx tsc --noEmit` clean, all 487 unit tests pass
+    - **Deferred to 3.10:**
+      - Vault routes auth swap to Telegram-resolved session (paired there with Telegram session issuance from the 2.1 webhook + chat handlers from 3.6)
+      - `src/app/api/banking/plaid-callback/route.ts` server-side handler for the Plaid Link redirect (already in 3.10's body — duplicative bullet removed from here)
     - _Requirements: pivot housekeeping (2026-04-29)_
 
 - [x] 4. Checkpoint — Ensure Wave 2 services pass all tests and integrate with Wave 1
