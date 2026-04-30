@@ -1,6 +1,15 @@
 # RealValue AI
 
-Chat-first multi-agent financial assistant (Telegram/WhatsApp/SMS). Five specialized agents (Conductor, Watcher, Fixer, Hunter, Voice) collaborate behind a single conversational personality to cancel subscriptions, predict overdrafts, find government benefits, and negotiate bills for low-income users.
+Chat-first multi-agent financial assistant. **Telegram is the primary user interface.** SMS via Twilio is the alternative channel (currently `[TBD on use]` pending Twilio A2P 10DLC carrier approval). WhatsApp is post-MVP. **There is no authenticated web portal** — see `.kiro/specs/ai-financial-agent/requirements.md` Requirement 22 for the forcing function preventing reintroduction.
+
+Five specialized agents (Conductor, Watcher, Fixer, Hunter, Voice) collaborate behind a single conversational personality to cancel subscriptions, predict overdrafts, find government benefits, and negotiate bills for low-income users.
+
+## UX surfaces
+
+- **Primary:** Telegram (`@RealValueAIBot`). All user features are chat commands and inline keyboards (`/link_bank`, `/personality`, `/vault`, `/upgrade`, etc.).
+- **Alternative (post-A2P):** SMS via Twilio (`+1-989-812-0439`).
+- **Future (post-MVP):** WhatsApp Business API.
+- **Public web (no auth):** `/` marketing landing, `/privacy`, `/terms` (required for Twilio A2P review). No portal, no login, no settings page.
 
 ## Project map
 
@@ -9,8 +18,9 @@ realvalueai/
 ├── .kiro/specs/ai-financial-agent/   # Spec files (tasks.md, design.md, requirements.md)
 ├── src/
 │   ├── app/                          # Next.js App Router
-│   │   ├── api/                      # API routes (webhooks, cron, vault, auth)
-│   │   ├── (portal)/                 # Authenticated web portal pages
+│   │   ├── api/                      # API routes (webhooks, cron, banking, vault, auth, health)
+│   │   ├── privacy/                  # Public legal page (A2P review)
+│   │   ├── terms/                    # Public legal page (A2P review)
 │   │   └── r/                        # Short URL redirects
 │   ├── agents/
 │   │   ├── conductor/                # Intent classification, routing, conflict resolution
@@ -40,9 +50,15 @@ Next.js 14+ (App Router), Supabase (Postgres), Redis + BullMQ, Playwright + Stag
 
 - Deployed on Vercel at **https://realvalueai.vercel.app** (auto-deploys on push to `main`).
 - Supabase project + Upstash Redis are provisioned and wired to Vercel env vars (Wave 1).
+- **Deployment hosts (locked in tasks.md "Architecture pivot" section):**
+  - **Vercel serverless functions** host the app, webhooks, cron, and the fast agents (Conductor, Voice, Watcher, Hunter — all sub-10s per job).
+  - **Railway / Fly.io worker dyno** hosts only the Fixer browser worker (Playwright sessions take minutes — required by Req 5.1). Doesn't need to exist until task 3.7 lands.
+  - BullMQ is used as a **queue+retry primitive**, not a long-running-worker requirement. Vercel functions dequeue + process per invocation.
 - Live health endpoints (use these to validate infra, not unit tests):
   - `GET /api/health` — Supabase + Redis connectivity ping
   - `GET /api/health/integration` — round-trip Supabase write/read + Redis set/get/del
+  - `GET /api/health/banking` — Plaid sandbox + SimpleFIN demo round-trip
+  - `GET /api/health/auth` — Twilio creds + From number (creds-only); `?phone=+1...` sends a real SMS
 - Vercel cron schedules are downgraded to **daily** (free-tier limit) — see `vercel.json`.
 - For real-service functional validation, prefer hitting the deployed URL over local dev unless the test needs unmerged code.
 
