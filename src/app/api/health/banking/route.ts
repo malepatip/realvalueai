@@ -15,6 +15,7 @@
 import { NextResponse } from "next/server";
 import {
   createLinkToken,
+  createHostedLinkToken,
   exchangePublicToken,
   syncTransactions,
   revokeAccessToken,
@@ -61,6 +62,24 @@ async function createSandboxPublicToken(config: PlaidConfig): Promise<string> {
     throw new Error("sandbox/public_token/create returned no public_token");
   }
   return json.public_token;
+}
+
+async function checkPlaidHostedLink(config: PlaidConfig): Promise<CheckResult> {
+  try {
+    const baseUri = "https://realvalueai.vercel.app/api/banking/plaid-callback";
+    const result = await createHostedLinkToken(
+      config,
+      "health-probe-user",
+      baseUri,
+      `${baseUri}?state=health-probe`,
+    );
+    return {
+      status: "ok",
+      detail: `hosted_link_url created (host=${new URL(result.hostedLinkUrl).host})`,
+    };
+  } catch (e) {
+    return { status: "error", error: e instanceof Error ? e.message : "unknown" };
+  }
 }
 
 async function checkPlaid(config: PlaidConfig): Promise<{
@@ -195,8 +214,9 @@ export async function GET(): Promise<NextResponse> {
     environment: env.PLAID_ENV,
   };
 
-  const [plaid, simplefin, simplefinTxns] = await Promise.all([
+  const [plaid, plaidHostedLink, simplefin, simplefinTxns] = await Promise.all([
     checkPlaid(plaidConfig),
+    checkPlaidHostedLink(plaidConfig),
     checkSimpleFin(env.SIMPLEFIN_ACCESS_URL),
     summarizeSimpleFinTransactions(env.SIMPLEFIN_ACCESS_URL),
   ]);
@@ -204,6 +224,7 @@ export async function GET(): Promise<NextResponse> {
   const results = {
     plaid_env: { status: "ok", detail: env.PLAID_ENV },
     plaid_link_token: plaid.link_token,
+    plaid_hosted_link: plaidHostedLink,
     plaid_full_flow: plaid.full_flow,
     simplefin_accounts: simplefin,
     simplefin_transactions: simplefinTxns,

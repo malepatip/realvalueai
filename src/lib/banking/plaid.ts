@@ -98,17 +98,27 @@ export async function createLinkToken(
  * `hosted_link_url` to the user, the user taps it, completes the flow
  * on Plaid's domain, and Plaid redirects to our callback.
  *
+ * **Important — two redirect URIs:**
+ *   - `redirectUri` is for **OAuth bank flows** (Chase, BofA, etc.).
+ *     It must EXACTLY match the URI registered in the Plaid dashboard
+ *     — no query string, no trailing slash variation. Plaid rejects
+ *     mismatches with a 400.
+ *   - `completionRedirectUri` is the URL Plaid sends the user to after
+ *     the entire Hosted Link flow finishes. May include query params
+ *     (we use `?state=<uuid>` so the callback can look up the session
+ *     in Redis).
+ *
  * @param config - Plaid API credentials
  * @param userId - Internal user ID (used as Plaid client_user_id)
- * @param completionRedirectUri - Server endpoint Plaid redirects to on
- *   success (must be allow-listed in the Plaid dashboard for OAuth
- *   banks like Chase, BofA, Wells Fargo to work)
+ * @param redirectUri - Bare callback URL, must match dashboard registration
+ * @param completionRedirectUri - Same callback URL with `?state=<uuid>` appended
  * @returns Object with link_token (use later with /link/token/get) and
  *   hosted_link_url (DM this to the user)
  */
 export async function createHostedLinkToken(
   config: PlaidConfig,
   userId: string,
+  redirectUri: string,
   completionRedirectUri: string,
 ): Promise<{ linkToken: string; hostedLinkUrl: string }> {
   const raw = await plaidRequest(config, "/link/token/create", {
@@ -117,10 +127,9 @@ export async function createHostedLinkToken(
     products: ["transactions"],
     country_codes: ["US"],
     language: "en",
-    redirect_uri: completionRedirectUri,
+    redirect_uri: redirectUri,
     hosted_link: {
       completion_redirect_uri: completionRedirectUri,
-      is_mobile_app: false,
     },
   });
 

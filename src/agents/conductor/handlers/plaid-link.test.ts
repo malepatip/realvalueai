@@ -22,8 +22,9 @@ vi.mock("@/lib/banking/plaid", () => ({
   createHostedLinkToken: (
     config: unknown,
     userId: string,
+    redirectUri: string,
     completionRedirectUri: string,
-  ) => mockCreateHostedLinkToken(config, userId, completionRedirectUri),
+  ) => mockCreateHostedLinkToken(config, userId, redirectUri, completionRedirectUri),
 }));
 
 const redisStore = new Map<string, { value: string; ex: number }>();
@@ -86,7 +87,7 @@ describe("handleLinkBank", () => {
     expect(reply.text).toContain("Plaid");
   });
 
-  it("calls Plaid with a completion_redirect_uri pointing at our callback", async () => {
+  it("calls Plaid with a bare redirect_uri (matches dashboard) and a state-bearing completion_redirect_uri", async () => {
     mockCreateHostedLinkToken.mockResolvedValueOnce({
       linkToken: "link-tok",
       hostedLinkUrl: "https://link.plaid.com/?session=q",
@@ -95,10 +96,14 @@ describe("handleLinkBank", () => {
     await handleLinkBank(ctx, undefined, DEPS);
 
     expect(mockCreateHostedLinkToken).toHaveBeenCalledOnce();
-    const [config, userId, completionRedirectUri] = mockCreateHostedLinkToken.mock.calls[0]!;
+    const [config, userId, redirectUri, completionRedirectUri] =
+      mockCreateHostedLinkToken.mock.calls[0]!;
     expect((config as { clientId: string }).clientId).toBe("stub-plaid-client");
     expect((config as { environment: string }).environment).toBe("sandbox");
     expect(userId).toBe("user-1");
+    // redirectUri is bare — no query params (Plaid dashboard match is exact)
+    expect(redirectUri).toBe("https://realvalueai.vercel.app/api/banking/plaid-callback");
+    // completionRedirectUri carries the state UUID
     expect(completionRedirectUri).toMatch(
       /^https:\/\/realvalueai\.vercel\.app\/api\/banking\/plaid-callback\?state=[A-Za-z0-9-]+$/,
     );
@@ -142,8 +147,9 @@ describe("handleLinkBank", () => {
     await handleLinkBank(ctx, undefined, DEPS);
 
     const calls = mockCreateHostedLinkToken.mock.calls;
-    const state1 = new URL(calls[0]![2] as string).searchParams.get("state");
-    const state2 = new URL(calls[1]![2] as string).searchParams.get("state");
+    // state is the 4th argument (completion_redirect_uri)
+    const state1 = new URL(calls[0]![3] as string).searchParams.get("state");
+    const state2 = new URL(calls[1]![3] as string).searchParams.get("state");
     expect(state1).toBeTruthy();
     expect(state2).toBeTruthy();
     expect(state1).not.toBe(state2);
@@ -169,7 +175,7 @@ describe("handleLinkBank", () => {
 
     await handleLinkBank(ctx, undefined, DEPS);
 
-    const completionRedirectUri = mockCreateHostedLinkToken.mock.calls[0]![2] as string;
+    const completionRedirectUri = mockCreateHostedLinkToken.mock.calls[0]![3] as string;
     // randomUUID() produces only [0-9a-f-], so encoding is a no-op in
     // practice. We assert the URI is parseable + the state survives a
     // round-trip URL parse.

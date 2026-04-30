@@ -46,7 +46,13 @@ export async function handleLinkBank(
   deps: ConductorDeps,
 ): Promise<ConductorReply> {
   const state = randomUUID();
-  const completionRedirectUri = `${deps.appUrl}/api/banking/plaid-callback?state=${encodeURIComponent(state)}`;
+  // Two URIs: `redirectUri` is the bare URL registered in the Plaid
+  // dashboard (used by OAuth bank flows; Plaid rejects mismatches);
+  // `completionRedirectUri` is the same URL with our state UUID
+  // appended (Plaid preserves query params here and adds its own
+  // `link_session_id` on top).
+  const redirectUri = `${deps.appUrl}/api/banking/plaid-callback`;
+  const completionRedirectUri = `${redirectUri}?state=${encodeURIComponent(state)}`;
 
   let hostedLinkUrl: string;
   let linkToken: string;
@@ -58,16 +64,20 @@ export async function handleLinkBank(
         environment: deps.plaidEnv,
       },
       ctx.userId,
+      redirectUri,
       completionRedirectUri,
     );
     hostedLinkUrl = result.hostedLinkUrl;
     linkToken = result.linkToken;
   } catch (e) {
     const reason = e instanceof Error ? e.message : "unknown error";
+    // Log the full error server-side for debugging (Vercel logs).
+    console.error("Plaid /link/token/create failed:", reason);
     return {
       text:
         "I couldn't start the bank-linking flow with Plaid. Try again " +
-        `in a minute — if this keeps happening, send /help. (\`${reason.slice(0, 200)}\`)`,
+        "in a minute — if this keeps happening, send /help.\n\n" +
+        `Details: ${reason.slice(0, 400)}`,
     };
   }
 
