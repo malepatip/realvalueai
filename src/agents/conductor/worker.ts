@@ -1,24 +1,28 @@
 /**
  * Conductor entry point.
  *
- * `processInboundMessage(ctx)` is the only function the webhook needs
- * to call. It classifies, routes, and returns a ConductorReply that
- * the caller can hand to TelegramAdapter (or any channel adapter).
+ * `processInboundMessage(ctx, deps)` is the only function the webhook
+ * needs to call. It classifies, routes, and returns a ConductorReply
+ * that the caller can hand to TelegramAdapter (or any channel adapter).
  *
- * Pure — no I/O, no DB, no Telegram API. Tests can call it directly
- * with synthetic contexts. The same function will be invocable from a
- * BullMQ consumer once we want async fan-out, without changing the
- * conductor logic itself (per the architecture-pivot table in
- * tasks.md: Vercel function host today, same code path either way).
+ * Pure-ish: this function itself does no I/O — handlers may, via the
+ * injected `deps`. Tests can call it with mocked deps. The same
+ * function is queue-consumer-ready for any future async fan-out, with
+ * no change to the conductor logic itself (per tasks.md "Deployment
+ * hosts per workload": Vercel function host today, same code path
+ * either way).
  *
  * @module agents/conductor/worker
  */
 
-import type { ConductorContext, ConductorReply } from "./types";
+import type { ConductorContext, ConductorDeps, ConductorReply } from "./types";
 import { classify } from "./classifier";
 import { route } from "./router";
 
-export function processInboundMessage(ctx: ConductorContext): ConductorReply {
+export async function processInboundMessage(
+  ctx: ConductorContext,
+  deps: ConductorDeps,
+): Promise<ConductorReply> {
   const intent = classify(ctx);
-  return route(ctx, intent);
+  return route(ctx, intent, deps);
 }

@@ -21,7 +21,7 @@ import { createServerClient } from "@/lib/supabase/client";
 import { getEnv } from "@/lib/env";
 import { TelegramAdapter } from "@/lib/channels/telegram";
 import { processInboundMessage } from "@/agents/conductor/worker";
-import type { ConductorContext } from "@/agents/conductor/types";
+import type { ConductorContext, ConductorDeps } from "@/agents/conductor/types";
 import type { User } from "@/types/database";
 
 /** Minimal Zod schema to ensure the body is a non-null object with update_id */
@@ -224,7 +224,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ...(displayName && { displayName }),
       };
 
-      const reply = processInboundMessage(conductorCtx);
+      const conductorDeps: ConductorDeps = {
+        supabaseUrl: env.SUPABASE_URL,
+        supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+        redisUrl: env.REDIS_URL,
+        encryptionKey: env.ENCRYPTION_KEY,
+      };
+      const reply = await processInboundMessage(conductorCtx, conductorDeps);
       const tg = new TelegramAdapter(env.TELEGRAM_BOT_TOKEN);
       await tg.sendText(String(parsed.chatId), reply.text);
     } catch (replyError) {

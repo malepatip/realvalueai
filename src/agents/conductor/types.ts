@@ -58,7 +58,7 @@ export type Intent =
  *
  * Keeping this small on purpose. Inline keyboards, attachments, and
  * multi-message replies will land as additional optional fields when
- * downstream handlers (3.10 bank linking, 4.6 settings) need them.
+ * downstream handlers (4.6 settings) need them.
  */
 export interface ConductorReply {
   /** Plain-text body. Telegram sends with parse_mode=Markdown by default. */
@@ -72,7 +72,32 @@ export interface ConductorReply {
 }
 
 /**
- * Synchronous handler signature. Pure — no I/O, no Telegram API calls.
- * Side effects happen in the caller (the webhook handler).
+ * Dependencies passed to handlers that need I/O (Supabase, Redis,
+ * encryption). Plain env-derived strings keep this serializable and
+ * easy to mock in tests; handlers construct clients as needed.
+ *
+ * Kept narrow: only what one or more handlers actually use today.
+ * New entries land here as new handlers ship.
  */
-export type Handler = (ctx: ConductorContext, intent: Intent) => ConductorReply;
+export interface ConductorDeps {
+  readonly supabaseUrl: string;
+  readonly supabaseServiceRoleKey: string;
+  readonly redisUrl: string;
+  readonly encryptionKey: string;
+}
+
+/**
+ * Handler signature. Async + dependency-injected so handlers can do
+ * I/O when needed without sacrificing testability — pass mocked deps
+ * in tests, real env-derived deps from the webhook.
+ *
+ * Returning a plain ConductorReply (not Promise) is also accepted —
+ * the router awaits the result either way. Pure handlers (start,
+ * help, fallback) take that shortcut; I/O handlers (bank-linking,
+ * vault, settings) return Promises.
+ */
+export type Handler = (
+  ctx: ConductorContext,
+  intent: Intent,
+  deps: ConductorDeps,
+) => Promise<ConductorReply> | ConductorReply;

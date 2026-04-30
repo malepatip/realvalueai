@@ -3,14 +3,20 @@
  *
  * Handler registry is intentionally a plain object lookup — fast,
  * obvious, and the auditor (or future Claude) can see every wired
- * command at a glance. New chat commands (3.10 `/link_bank`, 4.6
- * `/personality`, 5.5 `/link_partner`, etc.) get a one-line entry
- * here pointing at the new handler.
+ * command at a glance. New chat commands (4.6 `/personality`,
+ * 5.5 `/link_partner`, etc.) get a one-line entry here pointing at
+ * the new handler.
  *
  * @module agents/conductor/router
  */
 
-import type { ConductorContext, ConductorReply, Intent } from "./types";
+import type {
+  ConductorContext,
+  ConductorDeps,
+  ConductorReply,
+  Handler,
+  Intent,
+} from "./types";
 import { handleStart } from "./handlers/start";
 import { handleHelp } from "./handlers/help";
 import {
@@ -18,21 +24,28 @@ import {
   handleNaturalLanguage,
   handlePendingCallback,
 } from "./handlers/fallback";
+import { handleLinkSimpleFin, handleAccounts } from "./handlers/bank-linking";
 
 /**
  * Map of slash-command name → handler. Names are case-insensitive
  * (the classifier lowercases). Add new commands here as they ship.
  */
-const COMMAND_HANDLERS: Readonly<Record<string, (ctx: ConductorContext) => ConductorReply>> = {
+const COMMAND_HANDLERS: Readonly<Record<string, Handler>> = {
   start: handleStart,
   help: handleHelp,
+  link_simplefin: handleLinkSimpleFin,
+  accounts: handleAccounts,
 };
 
-export function route(ctx: ConductorContext, intent: Intent): ConductorReply {
+export async function route(
+  ctx: ConductorContext,
+  intent: Intent,
+  deps: ConductorDeps,
+): Promise<ConductorReply> {
   if (intent.kind === "command") {
     const handler = COMMAND_HANDLERS[intent.name];
     if (handler) {
-      return handler(ctx);
+      return handler(ctx, intent, deps);
     }
     return handleUnknownCommand(intent);
   }
