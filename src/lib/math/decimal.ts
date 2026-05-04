@@ -99,6 +99,11 @@ export class Money {
     return this.value.isNeg() && !this.value.isZero();
   }
 
+  /** Absolute value. Returns a new Money instance with sign stripped. */
+  abs(): Money {
+    return new Money(this.value.abs());
+  }
+
   /**
    * Locale-aware currency formatting (e.g., "$1,234.56").
    * Uses Intl.NumberFormat — the Decimal value is converted to string

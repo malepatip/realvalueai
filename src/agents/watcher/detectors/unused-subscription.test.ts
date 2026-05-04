@@ -119,15 +119,49 @@ describe("detectUnusedSubscriptions", () => {
     expect(result).toEqual([]);
   });
 
-  it("ignores zero or negative amounts (defensive)", () => {
+  it("ignores zero amounts (defensive)", () => {
     const result = detectUnusedSubscriptions(
-      [
-        charge({ id: "z", amount: "0.00" }),
-        charge({ id: "neg", amount: "-5.00" }),
-      ],
+      [charge({ id: "z", amount: "0.00" })],
       today,
     );
     expect(result).toEqual([]);
+  });
+
+  it("treats negative amounts as outflows — Plaid/SimpleFIN return charges as negative numbers", () => {
+    // Real-world: Plaid and SimpleFIN both encode money-out as negative
+    // amounts. Earlier detector versions silently dropped these; the
+    // detector now takes abs() so subscriptions get flagged regardless
+    // of which sign convention the upstream adapter uses.
+    const result = detectUnusedSubscriptions(
+      [
+        charge({
+          id: "neg",
+          merchantName: "Manus AI",
+          amount: "-300.00",
+          frequency: "monthly",
+          daysSinceUsage: 60,
+        }),
+      ],
+      today,
+    );
+    expect(result).toHaveLength(1);
+    const i = result[0]!;
+    expect(i.merchantName).toBe("Manus AI");
+    // Cost surfaces as a positive monthly figure regardless of input sign.
+    expect(i.amount).toBe("300.0000");
+    expect(i.metadata["monthlyEquivalent"]).toBe("300.0000");
+    // The original signed amount is preserved for audit.
+    expect(i.metadata["chargeAmount"]).toBe("-300.00");
+  });
+
+  it("sorts negative-amount charges by absolute monthly cost (biggest waste first)", () => {
+    const charges: RecurringCharge[] = [
+      charge({ id: "small", merchantName: "Tiny", amount: "-2.99" }),
+      charge({ id: "big", merchantName: "Huge", amount: "-49.99" }),
+      charge({ id: "mid", merchantName: "Mid", amount: "-9.99" }),
+    ];
+    const result = detectUnusedSubscriptions(charges, today);
+    expect(result.map((i) => i.merchantName)).toEqual(["Huge", "Mid", "Tiny"]);
   });
 
   it("sorts results by monthly cost descending — biggest waste first", () => {

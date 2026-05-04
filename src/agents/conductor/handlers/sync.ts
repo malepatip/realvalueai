@@ -71,19 +71,58 @@ function rowToCategorized(row: DbTransactionRow): CategorizedTransaction {
   return result;
 }
 
+interface SyncDiagnostics {
+  readonly transactionCount: number;
+  /** Recurring outflow charges only (incoming payroll/transfers excluded). */
+  readonly recurringOutflowCount: number;
+  /** Of the outflows: how many are still actively recurring (last seen <45d ago). */
+  readonly recurringActiveCount: number;
+  /** Of the outflows: how many have gone silent for 45+ days. */
+  readonly recurringUnusedCount: number;
+  readonly topRecurring: ReadonlyArray<{
+    merchant: string;
+    frequency: string;
+    amountFormatted: string;
+    days: number;
+    status: string;
+  }>;
+}
+
 /**
  * Format a list of unused-sub insights into a chat-ready message.
  * Always wraps merchant names in backticks (per the Telegram-Markdown
  * gotcha documented in handlers/help.ts) so underscores in merchant
  * names don't break the message parser.
+ *
+ * When zero unused subs are found we still surface diagnostic counts
+ * (transactions synced, recurring patterns detected) so the user can
+ * see the pipeline ran. Otherwise "no unused subs" is indistinguishable
+ * from "pipeline silently failed."
  */
-function formatUnusedSubsReply(insights: ReadonlyArray<Insight>): string {
+function formatUnusedSubsReply(
+  insights: ReadonlyArray<Insight>,
+  diag: SyncDiagnostics,
+): string {
   if (insights.length === 0) {
-    return (
-      "✅ I scanned your accounts and didn't find any unused subscriptions " +
-      "(no recurring charges that have gone unused for 45+ days). " +
-      "I'll keep watching — message `/sync` any time to re-scan."
+    const lines = [
+      "✅ I scanned your accounts and didn't find any unused subscriptions yet.",
+      "",
+      `_Pipeline ran:_ ${diag.transactionCount} txns, ${diag.recurringOutflowCount} recurring outflow patterns detected ` +
+        `(${diag.recurringActiveCount} still active, ${diag.recurringUnusedCount} silent 45+ days).`,
+    ];
+    if (diag.topRecurring.length > 0) {
+      lines.push("", "Top recurring outflows I _did_ detect:");
+      for (const r of diag.topRecurring) {
+        lines.push(
+          `• \`${r.merchant}\` — ${r.amountFormatted} ${r.frequency}, last ${r.days}d ago`,
+        );
+      }
+    }
+    lines.push(
+      "",
+      "Subs are flagged unused only after 45+ days with no charge. Run `/sync` again any time.",
     );
+    return lines.join("\n");
   }
 
   const shown = insights.slice(0, MAX_INSIGHTS_IN_REPLY);
@@ -116,6 +155,8 @@ function formatUnusedSubsReply(insights: ReadonlyArray<Insight>): string {
   }
 
   lines.push(
+    "",
+    `_Pipeline ran:_ ${diag.transactionCount} txns scanned, ${diag.recurringOutflowCount} recurring outflow patterns detected.`,
     "",
     "I can cancel these for you (coming in task 4.1 — Subscription Assassin). " +
       "For now, this is your shopping list of waste.",
@@ -193,9 +234,60 @@ export async function handleSync(
   // 3. Run the recurring-detector (in-memory, pure).
   const charges = detectRecurringCharges(ctx.userId, categorized);
 
-  // 4. Run the unused-sub detector (in-memory, pure).
-  const insights = detectUnusedSubscriptions(charges);
+  // 4. Narrow to outflows only for the user-facing surface.
+  //    Plaid + SimpleFIN both encode outgoing money as NEGATIVE
+  //    amounts. Inflows (payroll, transfers in, refunds, interest
+  //    income) cluster on positive cadences too — but calling those
+  //    "subscriptions" or "recurring charges" in chat is misleading.
+  //    The recurring-detector itself stays generic; this filter is
+  //    presentation logic for /sync only.
+  const outflows = charges.filter((c) => {
+    try {
+      return Money.fromString(c.amount).isNegative();
+    } catch {
+      return false;
+    }
+  });
 
-  // 5. Format reply.
-  return { text: formatUnusedSubsReply(insights) };
+  // 5. Run the unused-sub detector against outflows only.
+  //    detectUnusedSubscriptions is now sign-agnostic (uses abs()),
+  //    so passing the full charges list would also work — but we
+  //    keep the user-facing scope tight to subscription-shaped
+  //    things. Income that mysteriously goes silent for 45+ days
+  //    isn't a "Cancel this!" prompt.
+  const insights = detectUnusedSubscriptions(outflows);
+
+  // 6. Build diagnostics — surface counts so "no unused subs" doesn't
+  //    look indistinguishable from "pipeline broken."
+  const activeCount = outflows.filter((c) => c.status === "active").length;
+  const unusedCount = outflows.filter((c) => c.status === "unused").length;
+
+  // Top 5 recurring outflows by absolute monthly-equivalent cost.
+  const topRecurring = [...outflows]
+    .sort((a, b) => {
+      const aAbs = Money.fromString(a.amount).abs();
+      const bAbs = Money.fromString(b.amount).abs();
+      if (bAbs.isGreaterThan(aAbs)) return 1;
+      if (aAbs.isGreaterThan(bAbs)) return -1;
+      return 0;
+    })
+    .slice(0, 5)
+    .map((c) => ({
+      merchant: c.merchantName,
+      frequency: c.frequency,
+      amountFormatted: Money.fromString(c.amount).abs().format(),
+      days: c.daysSinceUsage ?? 0,
+      status: c.status,
+    }));
+
+  const diag: SyncDiagnostics = {
+    transactionCount: txns.length,
+    recurringOutflowCount: outflows.length,
+    recurringActiveCount: activeCount,
+    recurringUnusedCount: unusedCount,
+    topRecurring,
+  };
+
+  // 7. Format reply.
+  return { text: formatUnusedSubsReply(insights, diag) };
 }

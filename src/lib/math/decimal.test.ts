@@ -145,6 +145,19 @@ describe("Money", () => {
       expect(Money.fromString("0").isNegative()).toBe(false);
       expect(Money.fromString("1").isNegative()).toBe(false);
     });
+
+    it("abs() strips sign", () => {
+      expect(Money.fromString("-300.00").abs().toNumericString()).toBe("300.0000");
+      expect(Money.fromString("300.00").abs().toNumericString()).toBe("300.0000");
+      expect(Money.fromString("0").abs().toNumericString()).toBe("0.0000");
+    });
+
+    it("abs() does not mutate original", () => {
+      const m = Money.fromString("-50.00");
+      m.abs();
+      expect(m.toNumericString()).toBe("-50.0000");
+      expect(m.isNegative()).toBe(true);
+    });
   });
 
   describe("locale formatting", () => {

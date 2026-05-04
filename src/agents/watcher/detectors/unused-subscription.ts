@@ -62,7 +62,13 @@ export function monthlyEquivalent(
  *     most recent occurrence is older than 45 days, which is exactly
  *     the signal we want to surface)
  *   - daysSinceUsage must be ≥ UNUSED_THRESHOLD_DAYS (45)
- *   - amount must be > 0 (defensive — ignore credits / refunds)
+ *   - amount must be non-zero
+ *
+ * Sign convention: Plaid + SimpleFIN return outflows as NEGATIVE
+ * amounts. Earlier versions of this detector filtered with
+ * `amount > 0` thinking they were skipping credits/refunds, which
+ * silently dropped every real subscription. We now take abs() of
+ * the amount so the detector works with either sign convention.
  *
  * Note: the spec wording (Req 4.5) talks about "active subscriptions
  * the user hasn't used in 45 days" — that's the long-term goal and
@@ -91,8 +97,9 @@ export function detectUnusedSubscriptions(
     const days = charge.daysSinceUsage ?? 0;
     if (days < UNUSED_THRESHOLD_DAYS) continue;
 
-    const amount = Money.fromString(charge.amount);
-    if (!amount.isGreaterThan(Money.fromString("0"))) continue;
+    const rawAmount = Money.fromString(charge.amount);
+    if (rawAmount.isZero()) continue;
+    const amount = rawAmount.abs();
 
     const monthly = monthlyEquivalent(amount, charge.frequency);
 
