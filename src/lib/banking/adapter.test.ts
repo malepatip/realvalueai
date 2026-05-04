@@ -444,7 +444,10 @@ describe("syncBankData", () => {
       mockResponse({ accounts: [] }),
     );
 
-    // Should not throw — errors are caught per-connection
-    await expect(syncBankData("user-123", supabase, syncConfig)).resolves.toBeUndefined();
+    // Should not throw — errors are caught per-connection.
+    // One connection synced, one errored; counts reflect the partial outcome.
+    const summary = await syncBankData("user-123", supabase, syncConfig);
+    expect(summary.connectionsSynced).toBe(1);
+    expect(summary.connectionsErrored).toBe(1);
   });
 });

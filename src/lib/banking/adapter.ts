@@ -159,6 +159,21 @@ export interface SyncConfig {
 }
 
 /**
+ * Aggregate counters returned by `syncBankData`. Used by the /sync chat
+ * handler to report mechanical refresh progress to the user.
+ */
+export interface SyncSummary {
+  /** Connections that completed without throwing. */
+  readonly connectionsSynced: number;
+  /** Connections that errored mid-sync (provider unavailable, token bad). */
+  readonly connectionsErrored: number;
+  /** New transactions inserted into the DB (already-stored ones don't count). */
+  readonly transactionsAdded: number;
+  /** Accounts upserted (insert OR update — i.e. accounts touched). */
+  readonly accountsTouched: number;
+}
+
+/**
  * Sync bank data for a user across all their active bank connections.
  *
  * For each active connection:
@@ -167,16 +182,18 @@ export interface SyncConfig {
  * 3. Sync transactions and update accounts
  * 4. Store results in the database
  *
- * @param userId - User ID to sync
- * @param supabase - Supabase client
- * @param config - Sync configuration with API credentials
+ * @returns SyncSummary so callers can report counts to the user
  */
 export async function syncBankData(
   userId: string,
   supabase: SupabaseClient,
   config: SyncConfig,
-): Promise<void> {
-  // Fetch all active bank connections for the user
+): Promise<SyncSummary> {
+  let connectionsSynced = 0;
+  let connectionsErrored = 0;
+  let transactionsAdded = 0;
+  let accountsTouched = 0;
+
   const { data: connections, error: connError } = await supabase
     .from("bank_connections")
     .select("*")
@@ -189,7 +206,7 @@ export async function syncBankData(
   }
 
   if (!connections || connections.length === 0) {
-    return;
+    return { connectionsSynced, connectionsErrored, transactionsAdded, accountsTouched };
   }
 
   for (const conn of connections) {
@@ -205,23 +222,21 @@ export async function syncBankData(
         config,
       );
 
-      // Sync transactions
       const syncResult = await adapter.syncTransactions(
         conn.sync_cursor as string | undefined,
       );
 
-      // Upsert accounts
       const accounts = await adapter.getAccounts();
       for (const account of accounts) {
         await upsertAccount(supabase, userId, conn.id as string, account);
+        accountsTouched += 1;
       }
 
-      // Insert new transactions
       for (const tx of syncResult.transactions) {
-        await insertTransaction(supabase, userId, tx);
+        const inserted = await insertTransaction(supabase, userId, tx);
+        if (inserted) transactionsAdded += 1;
       }
 
-      // Update connection sync metadata
       const updateData: Record<string, unknown> = {
         last_sync_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -236,8 +251,9 @@ export async function syncBankData(
         .update(updateData)
         .eq("id", conn.id as string);
 
+      connectionsSynced += 1;
     } catch (error) {
-      // Mark connection as errored but continue with other connections
+      connectionsErrored += 1;
       console.error(
         `Sync failed for connection ${conn.id as string}:`,
         error instanceof Error ? error.message : "Unknown error",
@@ -252,6 +268,8 @@ export async function syncBankData(
         .eq("id", conn.id as string);
     }
   }
+
+  return { connectionsSynced, connectionsErrored, transactionsAdded, accountsTouched };
 }
 
 /**
@@ -332,13 +350,16 @@ async function upsertAccount(
 
 /**
  * Insert a transaction record, skipping duplicates by external ID.
+ *
+ * @returns `true` when a new row was inserted; `false` when skipped
+ *          (orphan account or duplicate). Callers aggregate this to
+ *          report "N new transactions" to the user.
  */
 async function insertTransaction(
   supabase: SupabaseClient,
   userId: string,
   tx: NormalizedTransaction,
-): Promise<void> {
-  // Resolve the internal account ID from the external account ID
+): Promise<boolean> {
   const { data: account } = await supabase
     .from("accounts")
     .select("id")
@@ -347,12 +368,8 @@ async function insertTransaction(
     .eq("is_deleted", false)
     .maybeSingle();
 
-  if (!account) {
-    // Account not yet synced — skip this transaction
-    return;
-  }
+  if (!account) return false;
 
-  // Check for duplicate by external transaction ID
   const { data: existing } = await supabase
     .from("transactions")
     .select("id")
@@ -360,10 +377,7 @@ async function insertTransaction(
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (existing) {
-    // Transaction already exists — skip
-    return;
-  }
+  if (existing) return false;
 
   const { error } = await supabase
     .from("transactions")
@@ -383,4 +397,5 @@ async function insertTransaction(
   if (error) {
     throw new Error(`Failed to insert transaction: ${error.message}`);
   }
+  return true;
 }

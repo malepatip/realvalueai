@@ -27,7 +27,8 @@ export function handleHelp(): ConductorReply {
     "• `/help` — show this list\n" +
     "• `/link_bank` — connect a bank via Plaid (recommended — fast, secure, all major US banks)\n" +
     "• `/accounts` — list your connected bank accounts\n" +
-    "• `/sync` — pull fresh transactions and surface unused subscriptions\n\n" +
+    "• `/sync` — pull fresh transactions from your banks\n" +
+    "• `/aha` — see what I found in your accounts (run `/sync` first)\n\n" +
     "Power-user fallback if Plaid doesn't have your bank:\n" +
     "• `/link_simplefin <access-url>` — connect via SimpleFIN\n\n" +
     "More coming soon: settings, subscription cancellation, " +
